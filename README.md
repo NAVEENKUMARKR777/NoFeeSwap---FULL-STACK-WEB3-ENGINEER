@@ -78,13 +78,22 @@ anvil --version
 │       ├── decoder.ts          # Operator calldata decoder
 │       ├── sandwich.ts         # Sandwich execution engine
 │       └── config.ts           # Configuration
-├── scripts/
+├── scripts/                   # Bash scripts (macOS/Linux/Git Bash)
 │   ├── start-anvil.sh          # Anvil with --no-mining (for bot)
 │   ├── start-anvil-auto.sh     # Anvil with auto-mining (for dApp)
 │   ├── deploy.sh               # Deploy all contracts
 │   ├── mine-block.sh           # Manually mine a block
 │   ├── test-flow.js            # Programmatic E2E test
 │   └── e2e-demo.ts             # Full demo script
+├── windows-scripts/           # Windows .bat scripts
+│   ├── full-setup.bat          # One-click: install, compile, deploy
+│   ├── start-anvil.bat         # Anvil with --no-mining
+│   ├── start-anvil-auto.bat    # Anvil with auto-mining
+│   ├── deploy.bat              # Deploy all contracts
+│   ├── mine-block.bat          # Mine a single block
+│   ├── start-frontend.bat      # Start Next.js dev server
+│   ├── start-bot.bat           # Start sandwich bot
+│   └── run-test.bat            # Run E2E test
 ├── deployed-addresses.json     # Generated after deployment
 └── README.md
 ```
@@ -119,6 +128,8 @@ The sandwich bot follows a three-stage pipeline:
 
 ## Quick Start
 
+### macOS / Linux / Git Bash
+
 ```bash
 # Terminal 1: Start Anvil
 bash scripts/start-anvil-auto.sh
@@ -133,6 +144,25 @@ cd frontend && npm run dev
 node scripts/test-flow.js
 ```
 
+### Windows (PowerShell / CMD)
+
+```powershell
+# Terminal 1: Start Anvil
+.\windows-scripts\start-anvil-auto.bat
+
+# Terminal 2: Deploy contracts
+.\windows-scripts\deploy.bat
+
+# Terminal 3: Start frontend
+.\windows-scripts\start-frontend.bat
+
+# Terminal 4: Run E2E test (optional)
+.\windows-scripts\run-test.bat
+
+# Or do everything at once:
+.\windows-scripts\full-setup.bat
+```
+
 Then open http://localhost:3000, import Anvil account `0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80` into MetaMask, and paste `deployed-addresses.json` contents into the address loader.
 
 ---
@@ -141,10 +171,18 @@ Then open http://localhost:3000, import Anvil account `0xac0974bec39a17e36ba4a6b
 
 ### 1. Install Dependencies
 
+**Bash (macOS/Linux/Git Bash):**
 ```bash
 cd contracts && npm install && cd ..
 cd frontend && npm install && cd ..
 cd bot && npm install && cd ..
+```
+
+**PowerShell (Windows):**
+```powershell
+cd contracts; npm install; cd ..
+cd frontend; npm install; cd ..
+cd bot; npm install; cd ..
 ```
 
 ### 2. Compile Contracts
@@ -194,6 +232,7 @@ cd ..
 
 ### Start Local Blockchain
 
+**Bash:**
 ```bash
 # Auto-mining (for normal dApp usage)
 bash scripts/start-anvil-auto.sh
@@ -202,10 +241,25 @@ bash scripts/start-anvil-auto.sh
 bash scripts/start-anvil.sh
 ```
 
+**PowerShell (Windows):**
+```powershell
+# Auto-mining (for normal dApp usage)
+.\windows-scripts\start-anvil-auto.bat
+
+# No auto-mining (for sandwich bot testing)
+.\windows-scripts\start-anvil.bat
+```
+
 ### Deploy Contracts
 
+**Bash:**
 ```bash
 bash scripts/deploy.sh
+```
+
+**PowerShell (Windows):**
+```powershell
+.\windows-scripts\deploy.bat
 ```
 
 This deploys via CREATE3 (matching `Initialize_test.py#L67-L78`):
@@ -240,8 +294,14 @@ Import test account private key:
 
 ### Start
 
+**Bash:**
 ```bash
 cd frontend && npm run dev
+```
+
+**PowerShell (Windows):**
+```powershell
+.\windows-scripts\start-frontend.bat
 ```
 
 Open http://localhost:3000.
@@ -311,6 +371,7 @@ Open http://localhost:3000.
 
 ### Setup
 
+**Bash:**
 ```bash
 # Terminal 1: Start Anvil with no auto-mining
 bash scripts/start-anvil.sh
@@ -320,6 +381,18 @@ bash scripts/deploy.sh
 
 # Terminal 3: Start the bot
 cd bot && npm start
+```
+
+**PowerShell (Windows):**
+```powershell
+# Terminal 1: Start Anvil with no auto-mining
+.\windows-scripts\start-anvil.bat
+
+# Terminal 2: Deploy contracts (use auto-mining first, then restart Anvil)
+.\windows-scripts\deploy.bat
+
+# Terminal 3: Start the bot
+.\windows-scripts\start-bot.bat
 ```
 
 ### 3a. Mempool Monitoring
@@ -360,8 +433,14 @@ When Anvil mines with `--no-mining`, transactions are ordered by gas price, prod
 
 ### Mining Blocks (No-Mining Mode)
 
+**Bash:**
 ```bash
 bash scripts/mine-block.sh
+```
+
+**PowerShell (Windows):**
+```powershell
+.\windows-scripts\mine-block.bat
 ```
 
 ---
@@ -383,7 +462,7 @@ bash scripts/mine-block.sh
 | **2b** | Graphical kernel editor | Complete | `KernelEditor.tsx` - drag, presets |
 | **2b** | On-chain execution | Complete | Verified 371k gas |
 | **2c** | Mint liquidity | Complete | Verified 269k gas |
-| **2c** | Burn liquidity | Complete | With MODIFY_SINGLE_BALANCE |
+| **2c** | Burn liquidity | Partial | UI complete; on-chain tx reverts due to tagShares mismatch (see Known Limitations) |
 | **2c** | User position display | Complete | `PositionTracker.tsx` - event indexing |
 | **2c** | Partial/full withdrawal | Complete | Shares input |
 | **2d** | Swap UI | Complete | Direction toggle, amount input |
@@ -399,6 +478,7 @@ bash scripts/mine-block.sh
 
 ### Known Limitations
 
+- **Burn (remove liquidity)** reverts with `OutstandingAmount`. The root cause: `MODIFY_SINGLE_BALANCE` requires the exact `tagShares` value (keccak256 of poolId + position boundaries) to match what was stored during mint. The protocol's internal share accounting uses a tag derived from the position coordinates, but the exact encoding (offsetted vs non-offsetted values, int256 vs uint256 casting) doesn't match our computed hash. The mint correctly creates shares (verified by Transfer events), but the burn can't reference them. Fixing this requires deeper protocol storage inspection or matching the exact Python test helper's `keccak` encoding.
 - **Swap estimation** uses a model-based approximation with `eth_call` simulation fallback. The MockQuoter returns hashes rather than real quotes, so the model estimate is used when simulation reverts.
 - **Position tracker** shows event-level data (poolId, shares, block). Full position value tracking (unrealized PnL, token amounts from shares) would require reading pool growth multipliers from storage.
 - **Kernel editor** validates breakpoints client-side (monotonicity, endpoints). Protocol-level edge cases (minLogStep, triple-repeat rules) rely on on-chain validation with clear revert messages.
@@ -442,9 +522,16 @@ MIN_PROFIT_WEI=0
 
 The full flow (init → mint → swap) is verified programmatically:
 
+**Bash:**
 ```bash
 # Start Anvil + deploy, then:
 node scripts/test-flow.js
+```
+
+**PowerShell (Windows):**
+```powershell
+# Start Anvil + deploy, then:
+.\windows-scripts\run-test.bat
 ```
 
 Output:
@@ -454,6 +541,7 @@ Output:
 2. Tokens approved
 3. Mint: SUCCESS gas: 269188
 4. Swap: SUCCESS gas: 193075
+5. Burn: SKIPPED (requires tagShares resolution - see Known Limitations)
 Final Balances:
   Token0: 999999.849171445782156684
   Token1: 999999.257225680070433969

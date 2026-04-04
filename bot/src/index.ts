@@ -74,8 +74,12 @@ async function main() {
   );
   const maxUint = ethers.MaxUint256;
 
-  await (await token0Write.approve(addresses.operator, maxUint)).wait();
-  await (await token1Write.approve(addresses.operator, maxUint)).wait();
+  const getNonce = async () => {
+    const hex: string = await provider.send("eth_getTransactionCount", [botWallet.address, "latest"]);
+    return parseInt(hex, 16);
+  };
+  await (await token0Write.approve(addresses.operator, maxUint, { nonce: await getNonce() })).wait();
+  await (await token1Write.approve(addresses.operator, maxUint, { nonce: await getNonce() })).wait();
   console.log("[Bot] Token approvals set");
 
   // Initialize sandwich executor

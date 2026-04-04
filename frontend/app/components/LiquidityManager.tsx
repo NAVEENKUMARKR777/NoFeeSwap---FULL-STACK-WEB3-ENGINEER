@@ -11,6 +11,17 @@ import { formatEther, keccak256, encodeAbiParameters } from "viem";
 import { NOFEESWAP_ABI, ERC20_ABI } from "@/lib/abis";
 import { buildMintActionData, buildBurnActionData } from "@/lib/operatorActions";
 import type { DeployedAddresses } from "@/lib/contracts";
+import {
+  LOG_PRICE_SPACING_LARGE_X59,
+  LOG_PRICE_SPACING_MEDIUM_X59,
+  LOG_PRICE_SPACING_SMALL_X59,
+} from "@/lib/contracts";
+
+const FEE_TIERS = [
+  { label: "0.05%", spacing: LOG_PRICE_SPACING_SMALL_X59 },
+  { label: "0.3%", spacing: LOG_PRICE_SPACING_MEDIUM_X59 },
+  { label: "1.0%", spacing: LOG_PRICE_SPACING_LARGE_X59 },
+];
 import { TransactionStatus, type TxState } from "./TransactionStatus";
 import { PositionTracker } from "./PositionTracker";
 
@@ -25,6 +36,7 @@ export function LiquidityManager({ addresses }: Props) {
   const [priceMin, setPriceMin] = useState("0.5");
   const [priceMax, setPriceMax] = useState("2.0");
   const [poolIdInput, setPoolIdInput] = useState("");
+  const [feeTier, setFeeTier] = useState(2); // 0=0.05%, 1=0.3%, 2=1%
   const [txState, setTxState] = useState<TxState>("idle");
   const [txHash, setTxHash] = useState<string>();
   const [txError, setTxError] = useState<string>();
@@ -81,16 +93,22 @@ export function LiquidityManager({ addresses }: Props) {
       const deadline = Math.floor(Date.now() / 1000) + 3600;
 
       // Compute offsetted log prices for modifyPosition
-      // qOffsetted = (2^59) * (16 + ln(price / pOffset)) = logPrice + (1 << 63)
+      // CRITICAL: qMin and qMax must be aligned to the pool's spacing grid
       const X59 = BigInt(2) ** BigInt(59);
       const X63 = BigInt(2) ** BigInt(63);
+      const spacing = FEE_TIERS[feeTier].spacing;
       const logOffset = Number((poolId >> 180n) % 256n);
       const signedLogOffset = logOffset >= 128 ? logOffset - 256 : logOffset;
 
-      const qMinOffsetted = BigInt(Math.floor(Math.log(pMin) * Number(X59))) + X63 - BigInt(signedLogOffset) * X59;
-      const qMaxOffsetted = BigInt(Math.floor(Math.log(pMax) * Number(X59))) + X63 - BigInt(signedLogOffset) * X59;
+      // Raw offsetted log prices
+      const rawQMin = BigInt(Math.floor(Math.log(pMin) * Number(X59))) + X63 - BigInt(signedLogOffset) * X59;
+      const rawQMax = BigInt(Math.floor(Math.log(pMax) * Number(X59))) + X63 - BigInt(signedLogOffset) * X59;
 
-      // Compute tagShares = keccak256(abi.encode(poolId, qMinNonOffset, qMaxNonOffset))
+      // Snap to spacing grid (floor for min, ceil for max)
+      const qMinOffsetted = (rawQMin / spacing) * spacing;
+      const qMaxOffsetted = ((rawQMax / spacing) + 1n) * spacing;
+
+      // Non-offsetted values for tagShares computation
       const qMinNonOffset = qMinOffsetted - X63 + BigInt(signedLogOffset) * X59;
       const qMaxNonOffset = qMaxOffsetted - X63 + BigInt(signedLogOffset) * X59;
       const tagShares = BigInt(keccak256(
@@ -237,6 +255,26 @@ export function LiquidityManager({ addresses }: Props) {
           className="w-full px-3 py-2 bg-gray-800 border border-gray-700 rounded-lg text-sm font-mono focus:outline-none focus:border-blue-500"
           placeholder="Enter pool ID from initialization"
         />
+      </div>
+
+      {/* Fee Tier (must match the pool's fee tier) */}
+      <div className="mb-4">
+        <label className="block text-sm text-gray-400 mb-2">Pool Fee Tier (must match pool)</label>
+        <div className="grid grid-cols-3 gap-2">
+          {FEE_TIERS.map((tier, i) => (
+            <button
+              key={i}
+              onClick={() => setFeeTier(i)}
+              className={`py-2 rounded-lg border text-center text-sm transition ${
+                feeTier === i
+                  ? "border-blue-500 bg-blue-900/30 text-blue-300"
+                  : "border-gray-700 bg-gray-800 text-gray-400 hover:border-gray-600"
+              }`}
+            >
+              {tier.label}
+            </button>
+          ))}
+        </div>
       </div>
 
       {/* Price Range */}

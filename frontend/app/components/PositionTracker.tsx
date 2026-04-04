@@ -31,19 +31,33 @@ export function PositionTracker({
     setError(undefined);
 
     try {
+      // The ModifyPosition event's "caller" is the Operator (not the user),
+      // because the Operator calls modifyPosition inside the unlock callback.
+      // We fetch ALL ModifyPosition events, then filter by tx.from === userAddress.
       const logs = await publicClient.getLogs({
         address: nofeeswapAddress as `0x${string}`,
         event: parseAbiItem(
           "event ModifyPosition(uint256 indexed poolId, address indexed caller, bytes32[6] data)"
         ),
-        args: {
-          caller: userAddress as `0x${string}`,
-        },
         fromBlock: 0n,
         toBlock: "latest",
       });
 
-      const parsed: Position[] = logs.map((log) => ({
+      // Filter to only txs sent by this user
+      const userLogs = [];
+      for (const log of logs) {
+        try {
+          const tx = await publicClient.getTransaction({ hash: log.transactionHash });
+          if (tx.from.toLowerCase() === userAddress.toLowerCase()) {
+            userLogs.push(log);
+          }
+        } catch {
+          // If we can't fetch the tx, include it anyway
+          userLogs.push(log);
+        }
+      }
+
+      const parsed: Position[] = userLogs.map((log) => ({
         poolId: log.args.poolId?.toString() ?? "unknown",
         blockNumber: log.blockNumber,
         txHash: log.transactionHash,

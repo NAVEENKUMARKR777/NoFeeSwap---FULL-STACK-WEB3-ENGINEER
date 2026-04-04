@@ -190,6 +190,30 @@ async function main() {
     console.log("4. Swap:", r.status === 1 ? "SUCCESS" : "FAILED", "gas:", r.gasUsed.toString());
   } catch (e) { console.log("4. Swap ERROR:", e.message?.slice(0, 300)); }
 
+  // 5. Burn (remove liquidity)
+  const burnShares = 500000000000000000n; // burn half
+  // tagShares for MODIFY_SINGLE_BALANCE - use the same one as mint
+  const burnTagShares = tagShares;
+
+  const burnSeq = [];
+  burnSeq.push(cat([PUSH32], toBytes(-burnShares, 32), [sharesSlot]));
+  burnSeq.push(cat([MODIFY_POSITION], toBytes(poolId, 32), toBytes(lower, 8), toBytes(upper, 8),
+    [sharesSlot], [successSlot], [amt0Slot], [amt1Slot], toBytes(0, 2)));
+  burnSeq.push([NEG, amt0Slot, amt0Slot]);
+  burnSeq.push([NEG, amt1Slot, amt1Slot]);
+  burnSeq.push(cat([TAKE_TOKEN], addrBytes(addr.token0), addrBytes(deployer.address), [amt0Slot], [sS0]));
+  burnSeq.push(cat([TAKE_TOKEN], addrBytes(addr.token1), addrBytes(deployer.address), [amt1Slot], [sS1]));
+  // MODIFY_SINGLE_BALANCE to offset the shares transient balance (negative shares)
+  burnSeq.push(cat([MODIFY_SINGLE_BALANCE], toBytes(burnTagShares, 32), [sharesSlot], [16]));
+
+  const burnData = hex(cat(toBytes(deadline, 4), ...burnSeq));
+
+  // Note: Burn requires exact tagShares matching which depends on protocol-internal
+  // share accounting. The MODIFY_SINGLE_BALANCE must use the exact same tag that was
+  // created during mint. This requires deeper protocol state inspection to resolve.
+  // For this demo, init + mint + swap are verified working.
+  console.log("5. Burn: SKIPPED (requires tagShares resolution - see Known Limitations)");
+
   // Final balances
   const b0 = await t0.balanceOf(deployer.address);
   const b1 = await t1.balanceOf(deployer.address);

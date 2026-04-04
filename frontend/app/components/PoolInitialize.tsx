@@ -144,8 +144,10 @@ export function PoolInitialize({ addresses }: Props) {
       const curveArray = encodeCurveCorrect([lower, upper, qCurrent]);
 
       // === unsaltedPoolId ===
-      // n=1, logOffset=0, no hooks, no flags
-      const unsaltedPoolId = (1n << 188n) + (0n << 180n);
+      // Use a unique n value based on timestamp to avoid PoolExists
+      // n occupies the top 68 bits (bits 188-255)
+      const uniqueN = BigInt(Math.floor(Date.now() / 1000));
+      const unsaltedPoolId = (uniqueN << 188n) + (0n << 180n);
 
       // poolGrowthPortion ~50% in X47
       const poolGrowthPortion = BigInt("0x800000000000");
