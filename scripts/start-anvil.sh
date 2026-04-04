@@ -18,5 +18,4 @@ anvil \
   --port 8545 \
   --chain-id 31337 \
   --gas-limit 30000000 \
-  --base-fee 1000000000 \
-  --block-time 0
+  --base-fee 1000000000

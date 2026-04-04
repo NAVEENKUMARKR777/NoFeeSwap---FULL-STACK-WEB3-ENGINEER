@@ -1,12 +1,11 @@
 import { ethers } from "ethers";
 
-// Function selectors for NoFeeSwap operations
-const UNLOCK_SELECTOR = "0x6198e339"; // unlock(address,bytes)
-const SWAP_SELECTOR = "0x32269698"; // swap(uint256,int256,int256,uint256,bytes)
+// Correct unlock selector
+const UNLOCK_SELECTOR = "0x738c440a";
 
-// Operator action opcodes
-const ACTION_PUSH32 = 0x03;
-const ACTION_SWAP = 0x10;
+// Correct operator action opcodes (DECIMAL, not hex)
+const ACTION_PUSH32 = 3;
+const ACTION_SWAP = 52;
 
 export interface DecodedSwap {
   poolId: bigint;
@@ -17,12 +16,11 @@ export interface DecodedSwap {
   gasPrice: bigint;
   nonce: number;
   txHash: string;
-  raw: string; // raw transaction for rebroadcast
+  raw: string;
 }
 
 /**
  * Attempts to decode a pending transaction as a NoFeeSwap swap.
- * Returns the decoded swap parameters if successful, null otherwise.
  */
 export function decodeSwapTransaction(
   tx: ethers.TransactionResponse,
@@ -30,7 +28,6 @@ export function decodeSwapTransaction(
   operatorAddress: string
 ): DecodedSwap | null {
   try {
-    // Check if the transaction is to the Nofeeswap contract
     if (!tx.to || tx.to.toLowerCase() !== nofeeswapAddress.toLowerCase()) {
       return null;
     }
@@ -39,11 +36,9 @@ export function decodeSwapTransaction(
     if (!data || data.length < 10) return null;
 
     const selector = data.slice(0, 10).toLowerCase();
-
-    // Check if it's an unlock call
     if (selector !== UNLOCK_SELECTOR) return null;
 
-    // Decode unlock(address unlockTarget, bytes data)
+    // Decode unlock(address, bytes)
     const iface = new ethers.Interface([
       "function unlock(address unlockTarget, bytes data) external payable returns (bytes)",
     ]);
@@ -52,73 +47,79 @@ export function decodeSwapTransaction(
     const unlockTarget = decoded[0] as string;
     const actionData = decoded[1] as string;
 
-    // Verify the unlock target is the Operator contract
     if (unlockTarget.toLowerCase() !== operatorAddress.toLowerCase()) {
       return null;
     }
 
-    // Parse the operator action data to find SWAP actions
-    // The action data format:
-    // - 4 bytes: deadline
-    // - Then a series of actions
+    // Parse operator action bytecode
     const actionBytes = ethers.getBytes(actionData);
     if (actionBytes.length < 4) return null;
 
-    let offset = 4; // skip deadline
+    let offset = 4; // skip deadline (4 bytes)
+
+    // Track slot values from PUSH32 actions
+    const slots: Map<number, bigint> = new Map();
     let poolId: bigint | null = null;
     let amountSpecified: bigint | null = null;
-    let logPriceLimit: bigint | null = null;
+    let limitOffsetted: bigint | null = null;
     let zeroForOne: bigint | null = null;
-
-    // Track slot values
-    const slots: Map<number, bigint> = new Map();
 
     while (offset < actionBytes.length) {
       const opcode = actionBytes[offset];
       offset++;
 
       if (opcode === ACTION_PUSH32) {
-        // PUSH32: 1 byte slot + 32 bytes value
+        // PUSH32 format: [value:32] [slot:1] (value FIRST, slot LAST)
         if (offset + 33 > actionBytes.length) break;
-        const slot = actionBytes[offset];
-        offset++;
         const value = BigInt(
           "0x" +
             Buffer.from(actionBytes.slice(offset, offset + 32)).toString("hex")
         );
-        slots.set(slot, value);
         offset += 32;
+        const slot = actionBytes[offset];
+        offset++;
+        slots.set(slot, value);
       } else if (opcode === ACTION_SWAP) {
-        // SWAP: poolIdSlot(1), amountSlot(1), limitSlot(1), zeroForOneSlot(1),
-        //       amount0OutSlot(1), amount1OutSlot(1), hookDataLen(2)
-        if (offset + 8 > actionBytes.length) break;
-        const poolIdSlot = actionBytes[offset];
-        const amountSlot = actionBytes[offset + 1];
-        const limitSlot = actionBytes[offset + 2];
-        const zeroForOneSlot = actionBytes[offset + 3];
-        // skip output slots (2 bytes) and read hookData length
-        const hookDataLen = (actionBytes[offset + 6] << 8) | actionBytes[offset + 7];
-        offset += 8 + hookDataLen;
+        // SWAP format: [poolId:32] [amountSpecifiedSlot:1] [limitOffsetted:8]
+        //              [zeroForOne:1] [crossThresholdSlot:1] [successSlot:1]
+        //              [amount0Slot:1] [amount1Slot:1] [hookDataLen:2] [hookData]
+        if (offset + 46 > actionBytes.length) break;
 
-        poolId = slots.get(poolIdSlot) ?? null;
+        poolId = BigInt(
+          "0x" +
+            Buffer.from(actionBytes.slice(offset, offset + 32)).toString("hex")
+        );
+        offset += 32;
+
+        const amountSlot = actionBytes[offset];
+        offset++;
+
+        limitOffsetted = BigInt(
+          "0x" +
+            Buffer.from(actionBytes.slice(offset, offset + 8)).toString("hex")
+        );
+        offset += 8;
+
+        zeroForOne = BigInt(actionBytes[offset]);
+        offset++;
+
+        // crossThresholdSlot(1) + successSlot(1) + amount0Slot(1) + amount1Slot(1)
+        offset += 4;
+
+        const hookDataLen = (actionBytes[offset] << 8) | actionBytes[offset + 1];
+        offset += 2 + hookDataLen;
+
         amountSpecified = slots.get(amountSlot) ?? null;
-        logPriceLimit = slots.get(limitSlot) ?? null;
-        zeroForOne = slots.get(zeroForOneSlot) ?? null;
-        break; // Found the swap, stop parsing
+
+        break; // Found swap, stop parsing
       } else {
-        // Skip unknown actions - try to continue
-        // Most actions have predictable sizes, but for safety we'll skip
+        // Skip other opcodes
         offset = skipAction(opcode, actionBytes, offset);
         if (offset === -1) break;
       }
     }
 
-    if (
-      poolId === null ||
-      amountSpecified === null ||
-      logPriceLimit === null ||
-      zeroForOne === null
-    ) {
+    if (poolId === null || amountSpecified === null || limitOffsetted === null || zeroForOne === null) {
       return null;
     }
 
@@ -128,9 +129,11 @@ export function decodeSwapTransaction(
     if (amountSpecified >= TWO_255) {
       amountSpecified = amountSpecified - TWO_256;
     }
-    if (logPriceLimit >= TWO_255) {
-      logPriceLimit = logPriceLimit - TWO_256;
-    }
+
+    // Convert limitOffsetted back to logPriceLimit
+    // logPriceLimit = limitOffsetted - (1<<63) + logOffset*(1<<59)
+    const X63 = BigInt(1) << BigInt(63);
+    const logPriceLimit = BigInt(limitOffsetted) - X63;
 
     return {
       poolId,
@@ -141,99 +144,65 @@ export function decodeSwapTransaction(
       gasPrice: tx.gasPrice ?? tx.maxFeePerGas ?? BigInt(0),
       nonce: tx.nonce,
       txHash: tx.hash,
-      raw: tx.data, // for reference
+      raw: tx.data,
     };
-  } catch (err) {
-    // Not a decodable swap transaction
+  } catch {
     return null;
   }
 }
 
-/**
- * Skip past an operator action we don't need to decode.
- * Returns the new offset, or -1 if we can't determine the size.
- */
 function skipAction(opcode: number, data: Uint8Array, offset: number): number {
-  // Action sizes (after opcode byte):
-  const fixedSizes: Record<number, number> = {
-    0x00: 1, // PUSH0: slot(1)
-    0x01: 11, // PUSH10: slot(1) + value(10)
-    0x02: 17, // PUSH16: slot(1) + value(16)
-    0x03: 33, // PUSH32: slot(1) + value(32)
-    0x04: 2, // NEG: in(1) + out(1)
-    0x05: 3, // ADD: a(1) + b(1) + out(1)
-    0x06: 3, // SUB
-    0x07: 3, // MUL
-    0x08: 3, // DIV
-    0x20: 0, // SETTLE: no params
-    0x24: 20, // SYNC_TOKEN: address(20)
-    0x25: 52, // SYNC_MULTITOKEN: address(20) + id(32)
-    0x2d: 1, // CLEAR: slot(1)
-    0x30: 0, // WRAP_NATIVE
-    0x31: 1, // UNWRAP_NATIVE: slot(1)
-    0x51: 0, // JUMPDEST
+  // Known action sizes (bytes AFTER opcode)
+  const sizes: Record<number, number> = {
+    0: 1,     // PUSH0: slot(1)
+    1: 11,    // PUSH10: value(10) + slot(1)
+    2: 17,    // PUSH16: value(16) + slot(1)
+    4: 2,     // NEG: in(1) + out(1)
+    5: 3, 6: 3, 7: 3, 8: 3, 9: 3, 10: 3, 11: 3, // arithmetic
+    12: 3,    // LTEQ
+    13: 3,    // LT
+    14: 3,    // EQ
+    15: 2,    // ISZERO
+    16: 2,    // (also ISZERO in some versions)
+    20: 0,    // JUMPDEST
+    21: 3,    // JUMP: offset(2) + slot(1)
+    37: 43,   // TRANSFER_FROM_PAYER_ERC20: token(20)+slot(1)+to(20)+success(1)+result(1)
+    42: 42,   // TAKE_TOKEN: token(20)+to(20)+slot(1)+success(1)
+    45: 20,   // SYNC_TOKEN: token(20)
+    47: 3,    // SETTLE: value(1)+success(1)+result(1)
+    50: 34,   // MODIFY_SINGLE_BALANCE: tag(32)+slot(1)+success(1)
+    59: 0,    // REVERT
   };
 
-  if (opcode in fixedSizes) {
-    return offset + fixedSizes[opcode];
+  if (opcode in sizes) {
+    return offset + sizes[opcode];
   }
 
-  // Variable-size actions
-  if (opcode === 0x21) {
-    // TAKE_TOKEN: token(20) + to(20) + amountSlot(1)
-    return offset + 41;
-  }
-  if (opcode === 0x26) {
-    // TRANSFER_FROM_PAYER_ERC20: token(20) + amountSlot(1)
-    return offset + 21;
-  }
-  if (opcode === 0x2a) {
-    // TRANSFER_TRANSIENT_BALANCE_FROM: from(20) + to(20) + tag(32) + amountSlot(1)
-    return offset + 73;
-  }
-  if (opcode === 0x11) {
-    // MODIFY_POSITION: poolId(1) + min(1) + max(1) + payer(20) + shares(1) + out0(1) + out1(1) + hookLen(2)
-    if (offset + 28 > data.length) return -1;
-    const hookLen = (data[offset + 26] << 8) | data[offset + 27];
-    return offset + 28 + hookLen;
-  }
-  if (opcode === 0x50) {
-    // JUMP: offset(2)
-    return offset + 2;
+  // MODIFY_POSITION: poolId(32)+qMin(8)+qMax(8)+shares(1)+success(1)+amt0(1)+amt1(1)+hookLen(2)
+  if (opcode === 53) {
+    if (offset + 54 > data.length) return -1;
+    const hookLen = (data[offset + 52] << 8) | data[offset + 53];
+    return offset + 54 + hookLen;
   }
 
-  // Unknown action - can't determine size
-  return -1;
+  return -1; // Unknown opcode
 }
 
 /**
- * Extract the victim's slippage tolerance from decoded swap params.
- * Slippage is derived from the logPriceLimit relative to the amountSpecified direction.
+ * Extract slippage tolerance from decoded swap params.
  */
 export function estimateSlippage(decoded: DecodedSwap): {
   slippagePercent: number;
   tradeSize: bigint;
 } {
-  // The slippage is encoded in the logPriceLimit
-  // A wider price limit = higher slippage tolerance
-  // For simplicity, we estimate based on the distance from a "fair" price
-
   const tradeSize =
     decoded.amountSpecified < 0n
       ? -decoded.amountSpecified
       : decoded.amountSpecified;
 
-  // Calculate approximate slippage from logPriceLimit
-  // In NoFeeSwap, logPriceLimit = (2^59) * ln(priceLimit)
-  // The further the limit from current price, the higher the slippage
   const TWO_59 = Number(BigInt(2) ** BigInt(59));
   const limitPrice = Math.exp(Number(decoded.logPriceLimit) / TWO_59);
+  const slippagePercent = Math.min(Math.abs(1 - limitPrice) * 100, 100);
 
-  // Rough slippage estimate - in practice you'd compare against current pool price
-  const slippagePercent = Math.abs(1 - limitPrice) * 100;
-
-  return {
-    slippagePercent: Math.min(slippagePercent, 100),
-    tradeSize,
-  };
+  return { slippagePercent, tradeSize };
 }

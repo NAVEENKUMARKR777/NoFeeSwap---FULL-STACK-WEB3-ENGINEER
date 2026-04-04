@@ -38,15 +38,8 @@ export class MempoolMonitor {
     console.log(`[Mempool] Operator: ${this.operatorAddress}`);
     console.log(`[Mempool] Poll interval: ${BOT_CONFIG.POLL_INTERVAL_MS}ms`);
 
-    // Try WebSocket subscription first
-    try {
-      await this.startWebSocket();
-      return;
-    } catch (err) {
-      console.log("[Mempool] WebSocket not available, falling back to polling");
-    }
-
-    // Fallback: poll pending transactions via eth_pendingTransactions or txpool_content
+    // Use txpool_content polling (most reliable on all platforms including Windows)
+    console.log("[Mempool] Using txpool_content polling");
     this.pollInterval = setInterval(async () => {
       if (!this.running) return;
       await this.pollPendingTransactions();
@@ -85,14 +78,38 @@ export class MempoolMonitor {
           if (this.seenTxs.has(txHash)) continue;
           this.seenTxs.add(txHash);
 
-          const fullTx = await this.provider.getTransaction(txHash);
-          if (fullTx) {
-            await this.processTx(fullTx);
+          try {
+            const fullTx = await this.provider.getTransaction(txHash);
+            if (fullTx) {
+              await this.processTx(fullTx);
+            }
+          } catch (innerErr) {
+            // getTransaction may fail for pending txs, use raw data instead
+            console.log(`[Mempool] getTransaction failed for ${txHash}, using raw data`);
+            // Build a minimal tx object from the raw txpool data
+            const rawTx = tx as any;
+            if (rawTx.to?.toLowerCase() === this.nofeeswapAddress.toLowerCase()) {
+              console.log(`\n[Mempool] Detected swap transaction (raw)`);
+              console.log(`  TxHash: ${txHash}`);
+              console.log(`  From: ${rawTx.from}`);
+              console.log(`  To: ${rawTx.to}`);
+              console.log(`  Selector: ${rawTx.input?.slice(0, 10)}`);
+              console.log(`  Gas Price: ${parseInt(rawTx.gasPrice, 16) / 1e9} gwei`);
+
+              // Try to decode using the raw input data
+              try {
+                const fullTx2 = await this.provider.getTransaction(txHash);
+                if (fullTx2) await this.processTx(fullTx2);
+              } catch {
+                console.log(`  (Could not decode calldata for sandwich analysis)`);
+              }
+            }
           }
         }
       }
-    } catch {
-      // txpool_content not available - silently continue
+    } catch (err) {
+      // txpool_content not available
+      console.error("[Mempool] Poll error:", (err as Error).message?.slice(0, 100));
     }
 
     // Periodically clean up seen transactions to prevent memory leak

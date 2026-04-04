@@ -12,4 +12,4 @@ echo.
 
 set PATH=%USERPROFILE%\.foundry\bin;%PATH%
 
-anvil --no-mining --host 0.0.0.0 --port 8545 --chain-id 31337 --gas-limit 30000000 --base-fee 1000000000 --block-time 0
+anvil --no-mining --host 0.0.0.0 --port 8545 --chain-id 31337 --gas-limit 30000000 --base-fee 1000000000

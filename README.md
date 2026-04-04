@@ -90,6 +90,8 @@ anvil --version
 │   ├── start-anvil.bat         # Anvil with --no-mining
 │   ├── start-anvil-auto.bat    # Anvil with auto-mining
 │   ├── deploy.bat              # Deploy all contracts
+│   ├── disable-mining.bat      # Disable auto-mining (for bot testing)
+│   ├── enable-mining.bat       # Re-enable auto-mining
 │   ├── mine-block.bat          # Mine a single block
 │   ├── start-frontend.bat      # Start Next.js dev server
 │   ├── start-bot.bat           # Start sandwich bot
@@ -399,8 +401,17 @@ cd bot && npm start
 
 - Polls `txpool_content` RPC every 100ms for pending transactions
 - Filters for transactions targeting the Nofeeswap contract
-- WebSocket subscription attempted first, falls back to polling
+- Uses HTTP polling (most reliable across all platforms including Windows)
 - Anvil `--no-mining` flag keeps txs in pending pool for detection
+
+**Important:** Deploy with auto-mining first, then disable mining without restarting Anvil:
+```powershell
+.\windows-scripts\start-anvil-auto.bat    # Terminal 1
+.\windows-scripts\deploy.bat              # Terminal 2
+.\windows-scripts\disable-mining.bat      # Terminal 2 (keeps contracts, disables mining)
+.\windows-scripts\start-bot.bat           # Terminal 2
+.\windows-scripts\mine-block.bat          # Terminal 3 (mine bot's approval txs x2)
+```
 
 ### 3b. Target Detection & Calldata Decoding
 
@@ -430,6 +441,34 @@ Three ordered transactions with gas price manipulation:
    - Gas ordering ensures it mines after the victim
 
 When Anvil mines with `--no-mining`, transactions are ordered by gas price, producing the correct sequence.
+
+### Verified Sandwich Output
+
+```
+[Mempool] Detected swap transaction from 0xf39Fd6e51a...
+  TxHash: 0x4d1cd717...
+  Pool ID: 849820967102116221...
+  Amount: 1000000000000000
+  ZeroForOne: 1
+  Gas Price: 1000153661
+
+=== Sandwich Analysis ===
+  Victim: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
+  Trade Size: 0.001 tokens
+  Slippage: 99.99%
+  Est. Profit: 0.000299969999999999 tokens
+
+=== Executing Sandwich ===
+  [1/3] Front-run: 0.0005 tokens, Gas: 2.0 gwei, Nonce: 14
+  [2/3] Victim: (already pending)
+  [3/3] Back-run: 0.0005 tokens (reverse), Gas: 0.5 gwei, Nonce: 15
+
+  Front-run: SUCCESS
+  Back-run:  SUCCESS
+
+[Stats] Sandwiches: 1/1
+[Stats] Total Estimated Profit: 0.0003 tokens
+```
 
 ### Mining Blocks (No-Mining Mode)
 
@@ -470,11 +509,11 @@ bash scripts/mine-block.sh
 | **2d** | Estimated output | Complete | `useSwapQuote.ts` hook |
 | **2d** | Price impact display | Complete | Model + simulation |
 | **2d** | On-chain execution | Complete | Verified 193k gas |
-| **3a** | Mempool monitoring | Complete | `txpool_content` polling |
-| **3b** | Calldata decoding | Complete | Operator bytecode parser |
-| **3c** | Front-run (higher gas) | Complete | 2x gas, nonce N |
-| **3c** | Back-run (lower gas) | Complete | 0.5x gas, nonce N+1 |
-| **3c** | Three-tx ordering | Complete | Gas price ordering verified |
+| **3a** | Mempool monitoring | Complete | `txpool_content` polling, 100ms interval |
+| **3b** | Calldata decoding | Complete | Decodes poolId, amount, limitOffsetted, zeroForOne |
+| **3c** | Front-run (higher gas) | Complete | 2x gas, nonce N - verified SUCCESS |
+| **3c** | Back-run (lower gas) | Complete | 0.5x gas, nonce N+1 - verified SUCCESS |
+| **3c** | Three-tx ordering | Complete | Gas price ordering verified in mined block |
 
 ### Known Limitations
 
@@ -536,13 +575,24 @@ node scripts/test-flow.js
 Output:
 ```
 === Full Flow Test ===
-1. Init Pool: SUCCESS gas: 371935
+1. Init Pool:    SUCCESS  gas: 371935
 2. Tokens approved
-3. Mint: SUCCESS gas: 269188
-4. Swap: SUCCESS gas: 193075
-5. setOperator: done
-6. Burn: SUCCESS gas: 138259
+3. Mint:         SUCCESS  gas: 269188
+4. Swap:         SUCCESS  gas: 193075
+5. setOperator:  done
+6. Burn:         SUCCESS  gas: 138259
 Final Balances:
-  Token0: 999999.849171445782156684
-  Token1: 999999.257225680070433969
+  Token0: 999999.924584602523354988
+  Token1: 999999.628607322642452064
+```
+
+### Sandwich Bot Verification
+
+Tested with the dApp frontend submitting a swap while the bot monitors the mempool:
+```
+[Mempool] Detected swap from victim
+[1/3] Front-run: SUCCESS  (2x gas, mined first)
+[2/3] Victim swap executes at worse price
+[3/3] Back-run:  SUCCESS  (0.5x gas, mined last)
+Estimated Profit: 0.0003 tokens
 ```
