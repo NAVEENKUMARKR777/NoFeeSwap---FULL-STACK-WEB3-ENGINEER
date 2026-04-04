@@ -58,6 +58,16 @@ export function LiquidityManager({ addresses }: Props) {
     args: address ? [address] : undefined,
   });
 
+  const handleSetOperator = useCallback(() => {
+    if (!isConnected) return;
+    writeContract({
+      address: addresses.nofeeswap as `0x${string}`,
+      abi: NOFEESWAP_ABI,
+      functionName: "setOperator",
+      args: [addresses.operator as `0x${string}`, true],
+    });
+  }, [isConnected, addresses, writeContract]);
+
   const handleApprove = useCallback(
     async (tokenAddr: string) => {
       if (!isConnected) return;
@@ -363,6 +373,19 @@ export function LiquidityManager({ addresses }: Props) {
           >
             Approve {addresses.token1Symbol}
           </button>
+        </div>
+      )}
+      {mode === "burn" && (
+        <div className="mb-4">
+          <button
+            onClick={handleSetOperator}
+            className="w-full py-2 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg text-sm"
+          >
+            Approve Operator (required for burn)
+          </button>
+          <p className="text-xs text-gray-500 mt-1">
+            Grants the Operator permission to decrement your ERC-6909 share balance
+          </p>
         </div>
       )}
 

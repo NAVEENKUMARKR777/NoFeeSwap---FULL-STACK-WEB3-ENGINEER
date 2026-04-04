@@ -462,7 +462,7 @@ bash scripts/mine-block.sh
 | **2b** | Graphical kernel editor | Complete | `KernelEditor.tsx` - drag, presets |
 | **2b** | On-chain execution | Complete | Verified 371k gas |
 | **2c** | Mint liquidity | Complete | Verified 269k gas |
-| **2c** | Burn liquidity | Partial | UI complete; on-chain tx reverts due to tagShares mismatch (see Known Limitations) |
+| **2c** | Burn liquidity | Complete | Verified 138k gas (requires setOperator before first burn) |
 | **2c** | User position display | Complete | `PositionTracker.tsx` - event indexing |
 | **2c** | Partial/full withdrawal | Complete | Shares input |
 | **2d** | Swap UI | Complete | Direction toggle, amount input |
@@ -478,7 +478,6 @@ bash scripts/mine-block.sh
 
 ### Known Limitations
 
-- **Burn (remove liquidity)** reverts with `OutstandingAmount`. The root cause: `MODIFY_SINGLE_BALANCE` requires the exact `tagShares` value (keccak256 of poolId + position boundaries) to match what was stored during mint. The protocol's internal share accounting uses a tag derived from the position coordinates, but the exact encoding (offsetted vs non-offsetted values, int256 vs uint256 casting) doesn't match our computed hash. The mint correctly creates shares (verified by Transfer events), but the burn can't reference them. Fixing this requires deeper protocol storage inspection or matching the exact Python test helper's `keccak` encoding.
 - **Swap estimation** uses a model-based approximation with `eth_call` simulation fallback. The MockQuoter returns hashes rather than real quotes, so the model estimate is used when simulation reverts.
 - **Position tracker** shows event-level data (poolId, shares, block). Full position value tracking (unrealized PnL, token amounts from shares) would require reading pool growth multipliers from storage.
 - **Kernel editor** validates breakpoints client-side (monotonicity, endpoints). Protocol-level edge cases (minLogStep, triple-repeat rules) rely on on-chain validation with clear revert messages.
@@ -541,7 +540,8 @@ Output:
 2. Tokens approved
 3. Mint: SUCCESS gas: 269188
 4. Swap: SUCCESS gas: 193075
-5. Burn: SKIPPED (requires tagShares resolution - see Known Limitations)
+5. setOperator: done
+6. Burn: SUCCESS gas: 138259
 Final Balances:
   Token0: 999999.849171445782156684
   Token1: 999999.257225680070433969

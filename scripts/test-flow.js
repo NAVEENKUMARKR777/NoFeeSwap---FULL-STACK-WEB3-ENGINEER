@@ -191,10 +191,11 @@ async function main() {
   } catch (e) { console.log("4. Swap ERROR:", e.message?.slice(0, 300)); }
 
   // 5. Burn (remove liquidity)
-  const burnShares = 500000000000000000n; // burn half
-  // tagShares for MODIFY_SINGLE_BALANCE - use the same one as mint
-  const burnTagShares = tagShares;
+  // setOperator: required for burn (allows Operator to decrement ERC-6909 shares)
+  await (await nfs.setOperator(addr.operator, true, { nonce: await freshNonce() })).wait();
+  console.log("5. setOperator: done");
 
+  const burnShares = 500000000000000000n;
   const burnSeq = [];
   burnSeq.push(cat([PUSH32], toBytes(-burnShares, 32), [sharesSlot]));
   burnSeq.push(cat([MODIFY_POSITION], toBytes(poolId, 32), toBytes(lower, 8), toBytes(upper, 8),
@@ -203,16 +204,14 @@ async function main() {
   burnSeq.push([NEG, amt1Slot, amt1Slot]);
   burnSeq.push(cat([TAKE_TOKEN], addrBytes(addr.token0), addrBytes(deployer.address), [amt0Slot], [sS0]));
   burnSeq.push(cat([TAKE_TOKEN], addrBytes(addr.token1), addrBytes(deployer.address), [amt1Slot], [sS1]));
-  // MODIFY_SINGLE_BALANCE to offset the shares transient balance (negative shares)
-  burnSeq.push(cat([MODIFY_SINGLE_BALANCE], toBytes(burnTagShares, 32), [sharesSlot], [16]));
+  burnSeq.push(cat([MODIFY_SINGLE_BALANCE], toBytes(tagShares, 32), [sharesSlot], [16]));
 
   const burnData = hex(cat(toBytes(deadline, 4), ...burnSeq));
-
-  // Note: Burn requires exact tagShares matching which depends on protocol-internal
-  // share accounting. The MODIFY_SINGLE_BALANCE must use the exact same tag that was
-  // created during mint. This requires deeper protocol state inspection to resolve.
-  // For this demo, init + mint + swap are verified working.
-  console.log("5. Burn: SKIPPED (requires tagShares resolution - see Known Limitations)");
+  try {
+    tx = await nfs.unlock(addr.operator, burnData, { ...GAS, nonce: await freshNonce() });
+    r = await tx.wait();
+    console.log("6. Burn:", r.status === 1 ? "SUCCESS" : "FAILED", "gas:", r.gasUsed.toString());
+  } catch (e) { console.log("6. Burn ERROR:", e.message?.slice(0, 200)); }
 
   // Final balances
   const b0 = await t0.balanceOf(deployer.address);

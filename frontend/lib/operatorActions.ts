@@ -528,6 +528,10 @@ export function buildBurnActionData(params: {
   sequence.push(encodeTakeToken(token0, recipient, amount0Slot, successSlotTake0));
   sequence.push(encodeTakeToken(token1, recipient, amount1Slot, successSlotTake1));
 
+  // MODIFY_SINGLE_BALANCE to settle the shares transient balance
+  // NOTE: User must call nofeeswap.setOperator(operator, true) before burning
+  sequence.push(encodeModifySingleBalance(tagShares, sharesSlot, sharesSuccessSlot));
+
   const deadlineBytes = toBytes(deadline, 4);
   const allBytes = concatBytes(deadlineBytes, ...sequence);
   return bytesToHex(allBytes);
