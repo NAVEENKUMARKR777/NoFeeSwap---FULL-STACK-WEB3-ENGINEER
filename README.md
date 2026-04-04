@@ -608,6 +608,30 @@ MIN_PROFIT_WEI=0
 
 ---
 
+## Reference: NoFeeSwap YellowPaper
+
+**Source**: [github.com/NoFeeSwap/docs/blob/main/yellowpaper.pdf](https://github.com/NoFeeSwap/docs/blob/main/yellowpaper.pdf)
+
+Key YellowPaper concepts implemented in this project:
+
+| YellowPaper Concept | Section | Implementation |
+|---------------------|---------|----------------|
+| **Kernel** `k : [0, qSpacing] → [0, 1]` — piecewise-linear, monotonically non-decreasing | §3.1.1 | `KernelEditor.tsx` — interactive SVG with draggable breakpoints, presets (Linear/Step/Concentrated) |
+| **Curve Sequence** `q̄ = (q₀, q₁, ..., qₗ₋₁)` — historical prices as a stack | §3.1.2 | `encodeCurve()` — packed 64-bit offsetted log prices, 4 per uint256 |
+| **qSpacing** = qUpper - qLower — determines liquidity interval width | §3.1.1 | Fee tier selector: 0.05% (10 ticks), 0.3% (60 ticks), 1.0% (200 ticks) |
+| **pOffset** and `qOffset = ln(pOffset)` — price range centering | Remark 7 | Encoded in `unsaltedPoolId` bits 180-187 as int8, range [-89, +89] |
+| **Zero spread** — no gap between buy/sell marginal prices | §2 | Liquidity distribution `z(q)` is never zero within intervals (Remark 6) |
+| **outgoingMaxK** — kernel normalizer integral (Eq. 43) | §3.1.1 | Used internally by `modifyPosition` for token amount calculation |
+| **Liquidity growth** `growth ≥ 1` — compounded after each swap | §3.5 | Tracked per interval, extracted via `poolGrowthPortion` parameter |
+| **Shares / modifyPosition** — LP position management | §3.8 | `MODIFY_POSITION` operator action + `MODIFY_SINGLE_BALANCE` for ERC-6909 |
+| **tagShares** = `keccak256(poolId, qMin, qMax)` — position identifier | §3.8 | Computed in `LiquidityManager.tsx` and `test-flow.js` for mint/burn |
+| **Singleton + Delegatee** architecture | §3 | CREATE3 deterministic deployment matching `Initialize_test.py#L67-L78` |
+| **Operator / unlock pattern** — flash accounting with transient storage | §5 | 27-action swap sequence, 9-action mint sequence with JUMP/REVERT error handling |
+| **setOperator** for ERC-6909 — required before burning shares | §3.8 | `nofeeswap.setOperator(operator, true)` call before burn in `LiquidityManager.tsx` |
+| **Curve sequence updates** — price memory mechanism | §3.1.3 | Protocol handles internally via `modifyPosition` and `swap` delegatecall |
+
+---
+
 ## Programmatic Verification
 
 The full flow (init → mint → swap) is verified programmatically:
