@@ -371,76 +371,125 @@ Open http://localhost:3000.
 
 ## Task 3: Sandwich Bot
 
-### Setup
+The sandwich bot is a TypeScript backend service that monitors Anvil's mempool for pending swap transactions, decodes the operator action calldata to extract the victim's trade parameters, evaluates profitability, and dynamically constructs front-run/back-run transactions with manipulated gas prices and sequential nonces.
 
-**Bash:**
+### Setup (Step-by-Step)
+
+Anvil resets all state on restart, so you must deploy with auto-mining enabled, then switch to no-mining mode **without restarting** to preserve the deployed contracts.
+
+**Bash (macOS/Linux/Git Bash):**
 ```bash
-# Terminal 1: Start Anvil with no auto-mining
-bash scripts/start-anvil.sh
+# Terminal 1: Start Anvil with auto-mining
+bash scripts/start-anvil-auto.sh
 
-# Terminal 2: Deploy contracts (use auto-mining first, then restart Anvil)
+# Terminal 2: Deploy all contracts
 bash scripts/deploy.sh
 
-# Terminal 3: Start the bot
+# Terminal 2: Switch to no-mining mode (keeps contracts deployed)
+curl -s -X POST http://127.0.0.1:8545 \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"evm_setAutomine","params":[false],"id":1}'
+
+# Terminal 2: Start the bot
 cd bot && npm start
+
+# Terminal 3: Mine the bot's 2 token approval txs
+bash scripts/mine-block.sh
+bash scripts/mine-block.sh
+
+# Terminal 3: Start the frontend
+cd frontend && npm run dev
 ```
 
 **PowerShell (Windows):**
 ```powershell
-# Terminal 1: Start Anvil with no auto-mining
-.\windows-scripts\start-anvil.bat
+# Terminal 1: Start Anvil with auto-mining
+.\windows-scripts\start-anvil-auto.bat
 
-# Terminal 2: Deploy contracts (use auto-mining first, then restart Anvil)
+# Terminal 2: Deploy all contracts
 .\windows-scripts\deploy.bat
 
-# Terminal 3: Start the bot
+# Terminal 2: Switch to no-mining mode (keeps contracts deployed)
+.\windows-scripts\disable-mining.bat
+
+# Terminal 2: Start the bot
 .\windows-scripts\start-bot.bat
+
+# Terminal 3: Mine the bot's 2 token approval txs
+.\windows-scripts\mine-block.bat
+.\windows-scripts\mine-block.bat
+
+# Terminal 3: Start the frontend
+.\windows-scripts\start-frontend.bat
 ```
+
+### How to Test the Sandwich Attack
+
+Once the bot is running and monitoring:
+
+1. Open **http://localhost:3000** in your browser
+2. Connect MetaMask (Anvil account #0: `0xac0974...`)
+3. **New Pool** tab → Initialize Pool → mine: `.\windows-scripts\mine-block.bat`
+4. **Liquidity** tab → Approve both tokens (mine after each) → Add Liquidity → mine
+5. **Swap** tab → Paste Pool ID → Enter a small amount (e.g. `0.001`) → Approve → mine
+6. **Submit the Swap** → confirm in MetaMask → **DO NOT mine yet**
+7. **Watch the bot terminal** — it will print:
+   ```
+   [Mempool] Detected swap transaction from 0xf39F...
+   ```
+8. The bot automatically submits front-run (2x gas) and back-run (0.5x gas)
+9. **Now mine the block**: `.\windows-scripts\mine-block.bat`
+10. The bot prints the results: `Front-run: SUCCESS`, `Back-run: SUCCESS`
+
+> **Tip:** For the back-run to succeed, the pool needs sufficient liquidity relative to the swap amount. Use a large liquidity position (e.g. 100+ shares) and a small swap (e.g. 0.001 tokens).
 
 ### 3a. Mempool Monitoring
 
-- Polls `txpool_content` RPC every 100ms for pending transactions
-- Filters for transactions targeting the Nofeeswap contract
-- Uses HTTP polling (most reliable across all platforms including Windows)
-- Anvil `--no-mining` flag keeps txs in pending pool for detection
-
-**Important:** Deploy with auto-mining first, then disable mining without restarting Anvil:
-```powershell
-.\windows-scripts\start-anvil-auto.bat    # Terminal 1
-.\windows-scripts\deploy.bat              # Terminal 2
-.\windows-scripts\disable-mining.bat      # Terminal 2 (keeps contracts, disables mining)
-.\windows-scripts\start-bot.bat           # Terminal 2
-.\windows-scripts\mine-block.bat          # Terminal 3 (mine bot's approval txs x2)
-```
+| Feature | Implementation |
+|---------|---------------|
+| **Polling method** | `txpool_content` RPC (HTTP, every 100ms) |
+| **Platform support** | Works on Windows, macOS, Linux (no WebSocket dependency) |
+| **Filtering** | Only processes txs targeting the Nofeeswap contract address |
+| **Deduplication** | `seenTxs` Set prevents re-processing the same tx |
+| **Self-skip** | Ignores transactions from the bot's own wallet |
+| **No-mining mode** | Anvil `--no-mining` or `evm_setAutomine(false)` keeps txs pending |
 
 ### 3b. Target Detection & Calldata Decoding
 
-- Detects `unlock(address, bytes)` calls to Nofeeswap
-- Parses the operator action bytecode to extract:
-  - **Pool ID** (32 bytes after SWAP opcode)
-  - **Amount specified** (from PUSH32 → slot reference)
-  - **Price limit / slippage** (8-byte limitOffsetted inline in SWAP action)
-  - **Trade direction** (zeroForOne flag)
-- Computes victim's slippage tolerance from the logPriceLimit distance
+The decoder (`bot/src/decoder.ts`) performs multi-layer parsing:
+
+1. **Transaction level**: Checks `tx.to === nofeeswap` and `selector === 0x738c440a` (unlock)
+2. **ABI level**: Decodes `unlock(address unlockTarget, bytes data)` to extract the operator action bytecode
+3. **Operator level**: Walks the packed action bytecodes to find PUSH32 and SWAP opcodes:
+   - **PUSH32** (opcode 3): `[value:32 bytes][slot:1 byte]` — stores amountSpecified in a transient slot
+   - **SWAP** (opcode 52): `[poolId:32][amountSlot:1][limitOffsetted:8][zeroForOne:1][crossThresholdSlot:1][successSlot:1][amount0Slot:1][amount1Slot:1][hookDataLen:2]`
+4. **Parameter extraction**: Reads poolId (32 bytes), amountSpecified (from PUSH32 slot), limitOffsetted (inline 8-byte uint64), and zeroForOne (trade direction)
+5. **Slippage estimation**: Converts `limitOffsetted` back to logPriceLimit and estimates slippage from the price distance
 
 ### 3c. Sandwich Execution
 
-Three ordered transactions with gas price manipulation:
+The executor (`bot/src/sandwich.ts`) constructs three ordered transactions:
 
-1. **Front-run** (nonce N, **2x** victim gas price):
-   - Same swap direction as victim
-   - Full 27-action sequence with JUMP/REVERT error handling
-   - Moves price in victim's direction before their swap
+| Transaction | Gas Price | Nonce | Direction | Purpose |
+|-------------|-----------|-------|-----------|---------|
+| **Front-run** | 2x victim | N | Same as victim | Buy before victim, move price |
+| **Victim** | Original | (pending) | Original | Executes at worse price |
+| **Back-run** | 0.5x victim | N+1 | Opposite | Sell after victim, capture profit |
 
-2. **Victim swap** (already pending):
-   - Executes at a worse price due to front-run's price impact
+**Profitability analysis:**
+```
+estimatedProfit = tradeSize × slippagePercent × 0.3 (30% extraction factor)
+frontRunAmount = tradeSize / 2
+```
 
-3. **Back-run** (nonce N+1, **0.5x** victim gas price):
-   - Opposite swap direction
-   - Sells the front-run position at the post-victim price
-   - Gas ordering ensures it mines after the victim
+**Action sequence:** Each front-run/back-run uses the full 27-action swap sequence with:
+- PUSH32 → SWAP → JUMP/REVERT error handling
+- Conditional LT/ISZERO logic for token settlement direction
+- NEG + TAKE_TOKEN for outgoing tokens
+- SYNC + TRANSFER_FROM_PAYER + SETTLE for incoming tokens
+- Correct decimal opcodes (SWAP=52, not 0x10)
 
-When Anvil mines with `--no-mining`, transactions are ordered by gas price, producing the correct sequence.
+**Gas-price ordering:** When Anvil mines a block with `--no-mining` disabled, transactions are ordered by gas price (highest first), producing: front-run (2x) → victim (1x) → back-run (0.5x).
 
 ### Verified Sandwich Output
 
@@ -460,7 +509,7 @@ When Anvil mines with `--no-mining`, transactions are ordered by gas price, prod
 
 === Executing Sandwich ===
   [1/3] Front-run: 0.0005 tokens, Gas: 2.0 gwei, Nonce: 14
-  [2/3] Victim: (already pending)
+  [2/3] Victim: (already pending in mempool)
   [3/3] Back-run: 0.0005 tokens (reverse), Gas: 0.5 gwei, Nonce: 15
 
   Front-run: SUCCESS
@@ -480,6 +529,9 @@ bash scripts/mine-block.sh
 **PowerShell (Windows):**
 ```powershell
 .\windows-scripts\mine-block.bat
+
+# To re-enable auto-mining:
+.\windows-scripts\enable-mining.bat
 ```
 
 ---
