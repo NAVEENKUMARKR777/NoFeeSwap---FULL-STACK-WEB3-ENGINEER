@@ -1,0 +1,146 @@
+{
+  "abi": [
+    {
+      "type": "function",
+      "name": "donate",
+      "inputs": [
+        {
+          "name": "poolId",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "shares",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "hookData",
+          "type": "bytes",
+          "internalType": "bytes"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "amount0",
+          "type": "int256",
+          "internalType": "X127"
+        },
+        {
+          "name": "amount1",
+          "type": "int256",
+          "internalType": "X127"
+        }
+      ],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "modifyPosition",
+      "inputs": [
+        {
+          "name": "poolId",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "logPriceMin",
+          "type": "int256",
+          "internalType": "X59"
+        },
+        {
+          "name": "logPriceMax",
+          "type": "int256",
+          "internalType": "X59"
+        },
+        {
+          "name": "shares",
+          "type": "int256",
+          "internalType": "int256"
+        },
+        {
+          "name": "hookData",
+          "type": "bytes",
+          "internalType": "bytes"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "amount0",
+          "type": "int256",
+          "internalType": "X127"
+        },
+        {
+          "name": "amount1",
+          "type": "int256",
+          "internalType": "X127"
+        }
+      ],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "swap",
+      "inputs": [
+        {
+          "name": "poolId",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "amountSpecified",
+          "type": "int256",
+          "internalType": "int256"
+        },
+        {
+          "name": "logPriceLimit",
+          "type": "int256",
+          "internalType": "X59"
+        },
+        {
+          "name": "zeroForOne",
+          "type": "uint256",
+          "internalType": "uint256"
+        },
+        {
+          "name": "hookData",
+          "type": "bytes",
+          "internalType": "bytes"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "amount0",
+          "type": "int256",
+          "internalType": "X127"
+        },
+        {
+          "name": "amount1",
+          "type": "int256",
+          "internalType": "X127"
+        }
+      ],
+      "stateMutability": "nonpayable"
+    },
+    {
+      "type": "function",
+      "name": "transientAccess",
+      "inputs": [
+        {
+          "name": "slot",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "outputs": [
+        {
+          "name": "result",
+          "type": "bytes32",
+          "internalType": "bytes32"
+        }
+      ],
+      "stateMutability": "view"
+    }
+  ],
+  "bytecode": "0x60808060405234601557610158908161001a8239f35b5f80fdfe60806040526004361015610011575f80fd5b5f3560e01c80630e42e0c41461004f578063322696981461004f57806362fc9e531461004a5763834178fe14610045575f80fd5b6100ff565b6100ce565b3461009c5760a036600319011261009c5760843567ffffffffffffffff811161009c576100809036906004016100a0565b5050365f60803736608020604080519182525f19602083015290f35b5f80fd5b9181601f8401121561009c5782359167ffffffffffffffff831161009c576020838186019501011161009c57565b3461009c57606036600319011261009c5760443567ffffffffffffffff811161009c576100809036906004016100a0565b3461009c57602036600319011261009c576004355f526020805f20604051908152f3fea26469706673582212207fa926bde276b13903ec2265ecdbe5330832ff6bf05327a4461742db4c42da0664736f6c63430008210033"
+}
