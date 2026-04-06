@@ -128,9 +128,7 @@ The sandwich bot follows a three-stage pipeline:
 
 ---
 
-## Complete Setup Guide (From Fresh Clone)
-
-Everything is self-contained in the repository. No external repos to clone.
+## Complete Setup Guide
 
 ### Step 0: Prerequisites
 
@@ -330,7 +328,7 @@ Open **http://localhost:3000** in your browser.
 4. **Swap** tab → Paste Pool ID → Enter amount → Approve token → **Swap**
 5. **Liquidity** tab → Switch to Burn → **Approve Operator** → **Remove Liquidity**
 
-### Step 10: Test the Sandwich Bot (optional)
+### Step 10: Test the Sandwich Bot
 
 Requires 3 terminals:
 
