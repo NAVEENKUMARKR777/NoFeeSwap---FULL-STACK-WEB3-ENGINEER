@@ -128,104 +128,235 @@ The sandwich bot follows a three-stage pipeline:
 
 ---
 
-## Quick Start
+## Complete Setup Guide (From Fresh Clone)
 
-### macOS / Linux / Git Bash
+Everything is self-contained in the repository. No external repos to clone.
+
+### Step 0: Prerequisites
 
 ```bash
-# Terminal 1: Start Anvil
-bash scripts/start-anvil-auto.sh
-
-# Terminal 2: Deploy contracts
-bash scripts/deploy.sh
-
-# Terminal 3: Start frontend
-cd frontend && npm run dev
-
-# Terminal 4: Run E2E test (optional)
-node scripts/test-flow.js
+# Verify these are installed:
+node --version    # >= 18.x
+npm --version     # >= 9.x
+git --version     # >= 2.x
+forge --version   # Foundry (see install below)
+anvil --version   # Foundry (see install below)
 ```
 
-### Windows (PowerShell / CMD)
+**Install Foundry (if not installed):**
 
+Bash (macOS/Linux/Git Bash):
+```bash
+curl -L https://foundry.paradigm.xyz | bash
+foundryup
+```
+
+PowerShell (Windows) — after install, add to PATH:
 ```powershell
-# Terminal 1: Start Anvil
-.\windows-scripts\start-anvil-auto.bat
-
-# Terminal 2: Deploy contracts
-.\windows-scripts\deploy.bat
-
-# Terminal 3: Start frontend
-.\windows-scripts\start-frontend.bat
-
-# Terminal 4: Run E2E test (optional)
-.\windows-scripts\run-test.bat
-
-# Or do everything at once:
-.\windows-scripts\full-setup.bat
+$env:PATH = "$env:USERPROFILE\.foundry\bin;$env:PATH"
+# To make permanent:
+[Environment]::SetEnvironmentVariable("PATH", "$env:USERPROFILE\.foundry\bin;$([Environment]::GetEnvironmentVariable('PATH', 'User'))", "User")
 ```
 
-Then open http://localhost:3000, import Anvil account `0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80` into MetaMask, and paste `deployed-addresses.json` contents into the address loader.
+### Step 1: Clone the Repository
 
----
+```bash
+git clone https://github.com/NAVEENKUMARKR777/NoFeeSwap---FULL-STACK-WEB3-ENGINEER.git "NoFeeSwap - FULL-STACK WEB3 ENGINEER"
+cd "NoFeeSwap - FULL-STACK WEB3 ENGINEER"
+```
 
-## Step-by-Step Setup
+### Step 2: Install Dependencies
 
-### 1. Install Dependencies
-
-**Bash (macOS/Linux/Git Bash):**
+**Bash:**
 ```bash
 cd contracts && npm install && cd ..
-cd frontend && npm install && cd ..
+cd frontend && npm install --legacy-peer-deps && cd ..
 cd bot && npm install && cd ..
 ```
 
-**PowerShell (Windows):**
+**PowerShell:**
 ```powershell
 cd contracts; npm install; cd ..
-cd frontend; npm install; cd ..
+cd frontend; npm install --legacy-peer-deps; cd ..
 cd bot; npm install; cd ..
 ```
 
-### 2. Compile Contracts
+### Step 3: Compile Contracts
 
+**Bash:**
 ```bash
-# Initialize submodules
-cd contracts/core && git submodule update --init --recursive && cd ../..
-cd contracts/operator && git submodule update --init --recursive && cd ../..
-
-# Compile core contracts
+# Compile core contracts (NoFeeSwap singleton + delegatee)
 cd contracts/core
-forge build --evm-version cancun --via-ir --optimize --optimizer-runs 200
+forge build --force --evm-version cancun --via-ir --optimize --optimizer-runs 200
 cd ../..
 
 # Compile operator contracts
 cd contracts/operator
-forge build --evm-version cancun --via-ir --optimize --optimizer-runs 200
+forge build --force --evm-version cancun --via-ir --optimize --optimizer-runs 200
 cd ../..
 
-# Compile mock contracts and extract ABIs
-cd contracts && forge build
-node -e "
-const fs = require('fs');
-const contracts = [
-  ['core/out/Nofeeswap.sol/Nofeeswap.json', 'Nofeeswap'],
-  ['core/out/NofeeswapDelegatee.sol/NofeeswapDelegatee.json', 'NofeeswapDelegatee'],
-  ['core/out/DeployerHelper.sol/DeployerHelper.json', 'DeployerHelper'],
-  ['operator/out/Operator.sol/Operator.json', 'Operator'],
-  ['operator/out/MockQuoter.sol/MockQuoter.json', 'MockQuoter'],
-  ['out/MockERC20.sol/MockERC20.json', 'MockERC20'],
-  ['out/MockWETH9.sol/MockWETH9.json', 'MockWETH9'],
-];
-for (const [path, name] of contracts) {
-  const data = JSON.parse(fs.readFileSync(path, 'utf8'));
-  fs.writeFileSync('abis/' + name + '.json', JSON.stringify({
-    abi: data.abi, bytecode: data.bytecode?.object || data.bytecode
-  }, null, 2));
-  console.log(name + ': exported');
-}
-"
+# Compile mock contracts (MockERC20, MockWETH9)
+cd contracts
+forge build --force
 cd ..
+
+# Extract ABIs from compiled artifacts
+cd contracts && node scripts/extract-abis.js && cd ..
+```
+
+**PowerShell:**
+```powershell
+# Compile core contracts
+cd contracts\core
+forge build --force --evm-version cancun --via-ir --optimize --optimizer-runs 200
+cd ..\..
+
+# Compile operator contracts
+cd contracts\operator
+forge build --force --evm-version cancun --via-ir --optimize --optimizer-runs 200
+cd ..\..
+
+# Compile mock contracts + extract ABIs
+cd contracts
+forge build --force
+node scripts\extract-abis.js
+cd ..
+```
+
+Expected output for ABI extraction:
+```
+Nofeeswap: exported (71 ABI entries)
+NofeeswapDelegatee: exported (72 ABI entries)
+DeployerHelper: exported (5 ABI entries)
+Operator: exported (12 ABI entries)
+MockQuoter: exported (4 ABI entries)
+MockERC20: exported (13 ABI entries)
+MockWETH9: exported (16 ABI entries)
+```
+
+### Step 4: Start Anvil (Local Blockchain)
+
+**Bash:**
+```bash
+bash scripts/start-anvil-auto.sh
+```
+
+**PowerShell:**
+```powershell
+.\windows-scripts\start-anvil-auto.bat
+```
+
+Keep this terminal open. Anvil runs on `http://127.0.0.1:8545`.
+
+### Step 5: Deploy Contracts (in a new terminal)
+
+**Bash:**
+```bash
+bash scripts/deploy.sh
+```
+
+**PowerShell:**
+```powershell
+.\windows-scripts\deploy.bat
+```
+
+Expected output (last lines):
+```
+=== Deployment Complete ===
+Addresses saved to deployed-addresses.json
+```
+
+### Step 6: Run E2E Test (verify everything works)
+
+**Bash:**
+```bash
+node scripts/test-flow.js
+```
+
+**PowerShell:**
+```powershell
+.\windows-scripts\run-test.bat
+```
+
+Expected output:
+```
+=== Full Flow Test ===
+1. Init Pool:    SUCCESS  gas: 371935
+2. Tokens approved
+3. Mint:         SUCCESS  gas: 269188
+4. Swap:         SUCCESS  gas: 193075
+5. setOperator:  done
+6. Burn:         SUCCESS  gas: 138259
+```
+
+**If all 6 steps show SUCCESS, the project is set up correctly.**
+
+### Step 7: Start the Frontend (in a new terminal)
+
+**Bash:**
+```bash
+cd frontend && npm run dev
+```
+
+**PowerShell:**
+```powershell
+.\windows-scripts\start-frontend.bat
+```
+
+Open **http://localhost:3000** in your browser.
+
+### Step 8: Configure MetaMask
+
+1. **Add network** in MetaMask:
+   - Network Name: `Localhost 8545`
+   - RPC URL: `http://127.0.0.1:8545`
+   - Chain ID: `31337`
+   - Currency Symbol: `ETH`
+
+2. **Import test account** (Anvil account #0 with 10,000 ETH + 1M tokens):
+   ```
+   ac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+   ```
+
+3. **Switch to Localhost 8545** network in MetaMask
+
+4. Contract addresses **auto-load** from `deployed-addresses.json` when you open the dApp
+
+### Step 9: Use the dApp
+
+1. **New Pool** tab → Select fee tier (1.0%) → Set price (1.0) → Edit kernel shape → **Initialize Pool** → confirm in MetaMask
+2. Copy the **Pool ID** from the success message
+3. **Liquidity** tab → Paste Pool ID → Select 1.0% fee tier → Approve BETA → Approve ALPHA → **Add Liquidity**
+4. **Swap** tab → Paste Pool ID → Enter amount → Approve token → **Swap**
+5. **Liquidity** tab → Switch to Burn → **Approve Operator** → **Remove Liquidity**
+
+### Step 10: Test the Sandwich Bot (optional)
+
+Requires 3 terminals:
+
+**Terminal 1** — Anvil (already running from Step 4)
+
+**Terminal 2** — Disable auto-mining + start bot:
+```powershell
+.\windows-scripts\disable-mining.bat
+.\windows-scripts\start-bot.bat
+```
+Mine the bot's 2 approval txs:
+```powershell
+# In Terminal 3:
+.\windows-scripts\mine-block.bat
+.\windows-scripts\mine-block.bat
+```
+
+**Terminal 3** — Use the dApp:
+1. Initialize a pool → mine: `.\windows-scripts\mine-block.bat`
+2. Add liquidity (approve + mint) → mine after each tx
+3. Submit a swap → **DON'T mine yet** → watch bot terminal detect it
+4. Mine: `.\windows-scripts\mine-block.bat` → bot shows front-run/back-run results
+
+To re-enable auto-mining when done:
+```powershell
+.\windows-scripts\enable-mining.bat
 ```
 
 ---
