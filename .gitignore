@@ -1,19 +1,12 @@
 node_modules/
-artifacts/
-cache/
 .next/
-typechain-types/
 .env
 dist/
-out/
 
 # Foundry build outputs
-contracts/core/out/
-contracts/core/cache/
-contracts/operator/out/
-contracts/operator/cache/
-contracts/out/
-contracts/cache/
+**/out/
+**/cache/
+**/artifacts/
 
 # OS files
 .DS_Store
