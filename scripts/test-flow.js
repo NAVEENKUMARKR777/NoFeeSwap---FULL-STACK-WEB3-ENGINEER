@@ -98,7 +98,7 @@ async function main() {
   const sharesSlot = 1, successSlot = 2, amt0Slot = 3, amt1Slot = 4;
   const sTr0 = 7, sTr1 = 8, vS0 = 9, sS0 = 10, rS0 = 11, vS1 = 12, sS1 = 13, rS1 = 14;
 
-  const shares = 1000000000000000000n;
+  const shares = 10000000000000000000000n; // 10000 shares (large liquidity for sandwich bot testing)
   const sharesSuccessSlot = 16;
 
   // Compute tagShares = keccak256(abi.encode(poolId, qMin, qMax))
@@ -195,7 +195,7 @@ async function main() {
   await (await nfs.setOperator(addr.operator, true, { nonce: await freshNonce() })).wait();
   console.log("5. setOperator: done");
 
-  const burnShares = 500000000000000000n;
+  const burnShares = 1000000000000000000n; // burn 1 share (small portion of 10000)
   const burnSeq = [];
   burnSeq.push(cat([PUSH32], toBytes(-burnShares, 32), [sharesSlot]));
   burnSeq.push(cat([MODIFY_POSITION], toBytes(poolId, 32), toBytes(lower, 8), toBytes(upper, 8),
