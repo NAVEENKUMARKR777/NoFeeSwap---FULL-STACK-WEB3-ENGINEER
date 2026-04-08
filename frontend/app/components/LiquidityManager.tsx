@@ -32,7 +32,7 @@ interface Props {
 export function LiquidityManager({ addresses }: Props) {
   const { address, isConnected } = useAccount();
   const [mode, setMode] = useState<"mint" | "burn">("mint");
-  const [shares, setShares] = useState("1000");
+  const [shares, setShares] = useState("10000");
   const [priceMin, setPriceMin] = useState("0.5");
   const [priceMax, setPriceMax] = useState("2.0");
   const [poolIdInput, setPoolIdInput] = useState("");
@@ -93,7 +93,12 @@ export function LiquidityManager({ addresses }: Props) {
 
       const pMin = parseFloat(priceMin);
       const pMax = parseFloat(priceMax);
-      const sharesAmount = BigInt(shares);
+      // Parse shares with 18 decimals (same as token amounts)
+      const sharesFloat = parseFloat(shares);
+      if (isNaN(sharesFloat) || sharesFloat <= 0) {
+        throw new Error("Invalid shares amount");
+      }
+      const sharesAmount = BigInt(Math.floor(sharesFloat * 1e18).toString());
 
       if (isNaN(pMin) || isNaN(pMax) || pMin >= pMax || sharesAmount <= 0n) {
         throw new Error("Invalid parameters");
