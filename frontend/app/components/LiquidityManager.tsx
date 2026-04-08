@@ -93,12 +93,14 @@ export function LiquidityManager({ addresses }: Props) {
 
       const pMin = parseFloat(priceMin);
       const pMax = parseFloat(priceMax);
-      // Parse shares with 18 decimals (same as token amounts)
-      const sharesFloat = parseFloat(shares);
-      if (isNaN(sharesFloat) || sharesFloat <= 0) {
+      // Parse shares with 18 decimals using string manipulation to avoid Number overflow
+      const shareParts = shares.split(".");
+      const whole = shareParts[0] || "0";
+      const frac = (shareParts[1] || "").padEnd(18, "0").slice(0, 18);
+      const sharesAmount = BigInt(whole) * BigInt("1000000000000000000") + BigInt(frac);
+      if (sharesAmount <= 0n) {
         throw new Error("Invalid shares amount");
       }
-      const sharesAmount = BigInt(Math.floor(sharesFloat * 1e18).toString());
 
       if (isNaN(pMin) || isNaN(pMax) || pMin >= pMax || sharesAmount <= 0n) {
         throw new Error("Invalid parameters");
