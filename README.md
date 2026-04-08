@@ -264,7 +264,7 @@ Expected output (last lines):
 Addresses saved to deployed-addresses.json
 ```
 
-### Step 6: Run E2E Test (verify everything works)
+### Step 6: Run E2E Test (verify everything works - optional)
 
 **Bash:**
 ```bash
@@ -408,7 +408,7 @@ To re-enable auto-mining when done:
 | **"Transaction failed on-chain"** | Make sure the pool has liquidity before swapping. Create pool → Add liquidity (10000 shares) → Then swap |
 | **Bot not detecting swaps** | Make sure auto-mining is OFF (`.\windows-scripts\disable-mining.bat`) and the bot is running before you submit the swap |
 | **"nonce too low"** | Clear MetaMask activity data, or restart Anvil + redeploy |
-| **Sandwich back-run fails** | The pool needs more liquidity. Use the deploy script's pool (10000 shares) with a small swap (0.001) |
+| **Sandwich back-run fails** | The pool needs large liquidity (10000+ shares). Add more liquidity via the dApp, then retry with a small swap (0.001) |
 | **Port 8545 in use** | Kill existing Anvil: `taskkill /F /IM anvil.exe` |
 
 ---
@@ -493,9 +493,7 @@ Open http://localhost:3000.
 
 ### Loading Contract Addresses
 
-1. Copy contents of `deployed-addresses.json`
-2. Paste into the "Load Contract Addresses" textarea
-3. Click "Load Addresses"
+Contract addresses **auto-load** from `deployed-addresses.json` via the `/api/addresses` route. If auto-load fails, paste the JSON manually into the address loader.
 
 ### 2a. Wallet Integration
 
@@ -558,73 +556,70 @@ The sandwich bot is a TypeScript backend service that monitors Anvil's mempool f
 
 ### Setup (Step-by-Step)
 
-Anvil resets all state on restart, so you must deploy with auto-mining enabled, then switch to no-mining mode **without restarting** to preserve the deployed contracts.
+Anvil resets all state on restart, so you must deploy with auto-mining enabled, create a pool with liquidity via the dApp, then switch to no-mining mode **without restarting** to preserve the deployed contracts and pool.
 
-**Bash (macOS/Linux/Git Bash):**
-```bash
-# Terminal 1: Start Anvil with auto-mining
-bash scripts/start-anvil-auto.sh
+**Phase 1: Deploy + Create Pool (auto-mining ON)**
 
-# Terminal 2: Deploy all contracts
-bash scripts/deploy.sh
-
-# Terminal 2: Switch to no-mining mode (keeps contracts deployed)
-curl -s -X POST http://127.0.0.1:8545 \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","method":"evm_setAutomine","params":[false],"id":1}'
-
-# Terminal 2: Start the bot
-cd bot && npm start
-
-# Terminal 3: Mine the bot's 2 token approval txs
-bash scripts/mine-block.sh
-bash scripts/mine-block.sh
-
-# Terminal 3: Start the frontend
-cd frontend && npm run dev
-```
-
-**PowerShell (Windows):**
 ```powershell
-# Terminal 1: Start Anvil with auto-mining
+# Terminal 1: Start Anvil
 .\windows-scripts\start-anvil-auto.bat
 
-# Terminal 2: Deploy all contracts
+# Terminal 2: Deploy contracts
 .\windows-scripts\deploy.bat
 
-# Terminal 2: Switch to no-mining mode (keeps contracts deployed)
+# Terminal 3: Start frontend
+.\windows-scripts\start-frontend.bat
+```
+
+Then in the browser (http://localhost:3000):
+1. Connect MetaMask (import Anvil account, switch to Localhost 8545)
+2. **New Pool** tab → fee tier 1.0% → price 1.0 → Initialize Pool → copy Pool ID
+3. **Liquidity** tab → paste Pool ID → 1.0% fee tier → shares **10000** → Approve BETA → Approve ALPHA → Add Liquidity
+4. **Swap** tab → paste Pool ID → amount 0.01 → Approve → Swap (verify it works)
+
+**Phase 2: Sandwich Bot (switch to no-mining)**
+
+```powershell
+# Terminal 2: Disable auto-mining (keeps contracts + pool)
 .\windows-scripts\disable-mining.bat
 
 # Terminal 2: Start the bot
 .\windows-scripts\start-bot.bat
 
-# Terminal 3: Mine the bot's 2 token approval txs
+# Terminal 3: Mine the bot's 2 approval txs
 .\windows-scripts\mine-block.bat
 .\windows-scripts\mine-block.bat
+```
 
-# Terminal 3: Start the frontend
-.\windows-scripts\start-frontend.bat
+**Bash equivalent:**
+```bash
+# Phase 1
+bash scripts/start-anvil-auto.sh                    # Terminal 1
+bash scripts/deploy.sh                               # Terminal 2
+cd frontend && npm run dev                            # Terminal 3
+# → Create pool + add liquidity + test swap via dApp
+
+# Phase 2
+curl -s -X POST http://127.0.0.1:8545 \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"evm_setAutomine","params":[false],"id":1}'
+cd bot && npm start                                   # Terminal 2
+bash scripts/mine-block.sh && bash scripts/mine-block.sh  # Terminal 3
 ```
 
 ### How to Test the Sandwich Attack
 
-Once the bot is running and monitoring:
+Once the bot shows "Sandwich bot is running":
 
-1. Open **http://localhost:3000** in your browser
-2. Connect MetaMask (Anvil account #0: `0xac0974...`)
-3. **New Pool** tab → Initialize Pool → mine: `.\windows-scripts\mine-block.bat`
-4. **Liquidity** tab → Approve both tokens (mine after each) → Add Liquidity → mine
-5. **Swap** tab → Paste Pool ID → Enter a small amount (e.g. `0.001`) → Approve → mine
-6. **Submit the Swap** → confirm in MetaMask → **DO NOT mine yet**
-7. **Watch the bot terminal** — it will print:
-   ```
-   [Mempool] Detected swap transaction from 0xf39F...
-   ```
-8. The bot automatically submits front-run (2x gas) and back-run (0.5x gas)
-9. **Now mine the block**: `.\windows-scripts\mine-block.bat`
-10. The bot prints the results: `Front-run: SUCCESS`, `Back-run: SUCCESS`
+1. In the dApp **Swap** tab, paste the **Pool ID** from Phase 1
+2. Enter a small amount like `0.01`
+3. Click **Approve BETA** → confirm → mine: `.\windows-scripts\mine-block.bat`
+4. Click **Swap** → confirm in MetaMask → **DO NOT mine yet!**
+5. **Watch the bot terminal** — it detects the pending swap and submits sandwich txs
+6. **Now mine**: `.\windows-scripts\mine-block.bat`
+7. Bot prints: `Front-run: SUCCESS` and `Back-run: SUCCESS`
 
-> **Tip:** For the back-run to succeed, the pool needs sufficient liquidity relative to the swap amount. Use a large liquidity position (e.g. 100+ shares) and a small swap (e.g. 0.001 tokens).
+> **Important:** The pool must have **10000+ shares** of liquidity and the swap must be small (0.001-0.01 tokens) for the back-run to succeed. If MetaMask shows errors, clear activity data: Settings → Advanced → Clear activity tab data.
 
 ### 3a. Mempool Monitoring
 
@@ -674,32 +669,34 @@ frontRunAmount = tradeSize / 2
 
 **Gas-price ordering:** When Anvil mines a block with `--no-mining` disabled, transactions are ordered by gas price (highest first), producing: front-run (2x) → victim (1x) → back-run (0.5x).
 
-### Verified Sandwich Output
+### Verified Sandwich Output (from dApp)
+
+Pool created manually via dApp with 10000 shares liquidity. Victim swap of 0.01 tokens submitted from the frontend:
 
 ```
 [Mempool] Detected swap transaction from 0xf39Fd6e51a...
-  TxHash: 0x4d1cd717...
-  Pool ID: 849820967102116221...
-  Amount: 1000000000000000
+  TxHash: 0xf45019fc...
+  Pool ID: 73294284898940770281...
+  Amount: -10000000000000000
   ZeroForOne: 1
-  Gas Price: 1000153661
+  Gas Price: 1031265172
 
 === Sandwich Analysis ===
   Victim: 0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266
-  Trade Size: 0.001 tokens
+  Trade Size: 0.01 tokens
   Slippage: 99.99%
-  Est. Profit: 0.000299969999999999 tokens
+  Est. Profit: 0.002999699999999999 tokens
 
 === Executing Sandwich ===
-  [1/3] Front-run: 0.0005 tokens, Gas: 2.0 gwei, Nonce: 14
+  [1/3] Front-run: 0.005 tokens, Gas: 2.06 gwei, Nonce: 2
   [2/3] Victim: (already pending in mempool)
-  [3/3] Back-run: 0.0005 tokens (reverse), Gas: 0.5 gwei, Nonce: 15
+  [3/3] Back-run: 0.005 tokens (reverse), Gas: 0.52 gwei, Nonce: 3
 
   Front-run: SUCCESS
   Back-run:  SUCCESS
 
 [Stats] Sandwiches: 1/1
-[Stats] Total Estimated Profit: 0.0003 tokens
+[Stats] Total Estimated Profit: 0.003 tokens
 ```
 
 ### Mining Blocks (No-Mining Mode)
@@ -781,7 +778,7 @@ MIN_PROFIT_WEI=0
 
 3. **Operator action encoding from first principles**: Rather than importing the Python test helpers, the operator action bytecodes are constructed in TypeScript by reverse-engineering the Operator contract's assembly-level `unlockCallback`. This required discovering 6 encoding bugs (documented in commit history).
 
-4. **Polling over WebSocket for mempool**: The bot uses `txpool_content` HTTP polling because Anvil's `eth_pendingTransactions` RPC is not available in all versions. The monitor attempts WebSocket first and falls back automatically.
+4. **Polling over WebSocket for mempool**: The bot uses `txpool_content` HTTP polling because Anvil's WebSocket pending transaction subscriptions are unreliable on Windows. Polling is the default on all platforms.
 
 5. **Interactive kernel editor**: Built with raw SVG + React mouse events (no chart library dependency). Supports the full protocol kernel spec: monotonic breakpoints, discontinuities, and arbitrary piecewise-linear shapes.
 
