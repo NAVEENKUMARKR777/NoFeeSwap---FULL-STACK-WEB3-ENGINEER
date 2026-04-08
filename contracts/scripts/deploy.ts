@@ -229,96 +229,6 @@ async function main() {
   }
   console.log(`   Minted ${ethers.formatEther(mintAmount)} tokens each to deployer, 3 test accounts, and bot`);
 
-  // ===== Step 11: Initialize a default pool with large liquidity =====
-  console.log("11. Initializing default pool with 10000 shares liquidity...");
-
-  // Protocol constants
-  const X60 = BigInt(2) ** BigInt(60);
-  const X63 = BigInt(2) ** BigInt(63);
-  const X256 = BigInt(2) ** BigInt(256);
-  const spacing = BigInt(200) * BigInt("57643193118714"); // 1% fee tier
-
-  // Kernel: linear [0,0] -> [spacing, 2^15]
-  function encodeKernelCompact(kernel: [bigint, bigint][]) {
-    let k = BigInt(0); let bits = 0;
-    for (const [pos, height] of kernel.slice(1)) { k = (k << BigInt(16)) + height; k = (k << BigInt(64)) + pos; bits += 80; }
-    if (bits % 256 !== 0) { k = k << BigInt(256 - (bits % 256)); bits += 256 - (bits % 256); }
-    const count = bits / 256; const result: bigint[] = new Array(count).fill(BigInt(0));
-    let remaining = k; for (let j = count - 1; j >= 0; j--) { result[j] = remaining % X256; remaining = remaining / X256; }
-    return result;
-  }
-  function encodeCurve(curve: bigint[]) {
-    const len = Math.ceil(curve.length / 4); const encoded: bigint[] = new Array(len).fill(BigInt(0));
-    let shift = BigInt(192); let idx = 0;
-    for (const p of curve) { encoded[Math.floor(idx / 4)] += p << shift; shift -= BigInt(64); if (shift < BigInt(0)) shift = BigInt(192); idx++; }
-    return encoded;
-  }
-
-  const kernelCompactArray = encodeKernelCompact([[BigInt(0), BigInt(0)], [spacing, BigInt(2) ** BigInt(15)]]);
-
-  // Curve: price ≈ 0.85 (from sqrtPriceX96 used in tests)
-  const sqrtPriceX96 = BigInt("67254909186229727392878661970");
-  const X96 = BigInt(2) ** BigInt(96);
-  const logPrice = BigInt(Math.floor(Number(X60) * Math.log(Number(sqrtPriceX96) / Number(X96))));
-  const logPriceOffsetted = logPrice + X63;
-  const lower = (logPriceOffsetted / spacing) * spacing;
-  const upper = lower + spacing;
-  let qCurrent = logPriceOffsetted;
-  if (qCurrent <= lower) qCurrent = lower + BigInt(1);
-  if (qCurrent >= upper) qCurrent = upper - BigInt(1);
-  const curveArray = encodeCurve([lower, upper, qCurrent]);
-
-  const unsaltedPoolId = (BigInt(1) << BigInt(188));
-  const tag0 = BigInt(token0Addr);
-  const tag1 = BigInt(token1Addr);
-  const poolGrowthPortion = BigInt("0x800000000000");
-
-  // Initialize pool
-  const poolInitData = delegateeContract.interface.encodeFunctionData("initialize", [
-    unsaltedPoolId, tag0, tag1, poolGrowthPortion, kernelCompactArray, curveArray, "0x",
-  ]);
-  await (await nofeeswap.dispatch(poolInitData, { ...gasOverrides, nonce: nonce++ })).wait();
-
-  const poolSalt = ethers.keccak256(ethers.solidityPacked(["address", "uint256"], [deployer.address, unsaltedPoolId]));
-  const poolId = (unsaltedPoolId + (BigInt(poolSalt) << BigInt(188))) % X256;
-  console.log(`   Pool initialized. ID: ${poolId}`);
-
-  // Approve tokens to Operator
-  await (await token0.approve(operatorAddr, ethers.MaxUint256, { nonce: nonce++ })).wait();
-  await (await token1.approve(operatorAddr, ethers.MaxUint256, { nonce: nonce++ })).wait();
-  console.log("   Tokens approved to Operator");
-
-  // Add 10000 shares of liquidity via unlock -> operator
-  function toBytes(v: bigint, l: number): number[] { let n = v; if (n < BigInt(0)) n = (BigInt(1) << BigInt(l * 8)) + n; const r: number[] = []; for (let i = l - 1; i >= 0; i--) { r[i] = Number(n & BigInt(0xFF)); n >>= BigInt(8); } return r; }
-  function addrBytes(a: string): number[] { return toBytes(BigInt(a), 20); }
-  function cat(...arrays: number[][]): number[] { return arrays.flat(); }
-  function toHex(bytes: number[]): string { return "0x" + bytes.map(b => b.toString(16).padStart(2, "0")).join(""); }
-
-  const shares = BigInt("10000000000000000000000"); // 10000 shares
-  const tagShares = BigInt(ethers.keccak256(ethers.AbiCoder.defaultAbiCoder().encode(
-    ["uint256", "int256", "int256"], [poolId, lower - X63, upper - X63]
-  )));
-  const deadline = Math.floor(Date.now() / 1000) + 3600;
-
-  const mintSeq: number[][] = [];
-  mintSeq.push(cat([3], toBytes(shares, 32), [1])); // PUSH32 shares -> slot 1
-  mintSeq.push(cat([53], toBytes(poolId, 32), toBytes(lower, 8), toBytes(upper, 8), [1], [2], [3], [4], toBytes(BigInt(0), 2))); // MODIFY_POSITION
-  mintSeq.push(cat([45], addrBytes(token0Addr))); // SYNC token0
-  mintSeq.push(cat([37], addrBytes(token0Addr), [3], addrBytes(nofeeswapAddr), [7], [0])); // TRANSFER token0
-  mintSeq.push([47, 9, 10, 11]); // SETTLE
-  mintSeq.push(cat([45], addrBytes(token1Addr))); // SYNC token1
-  mintSeq.push(cat([37], addrBytes(token1Addr), [4], addrBytes(nofeeswapAddr), [8], [0])); // TRANSFER token1
-  mintSeq.push([47, 12, 13, 14]); // SETTLE
-  mintSeq.push(cat([50], toBytes(tagShares, 32), [1], [16])); // MODIFY_SINGLE_BALANCE
-
-  const mintData = toHex(cat(toBytes(BigInt(deadline), 4), ...mintSeq));
-  await (await nofeeswap.unlock(operatorAddr, mintData, { ...gasOverrides, nonce: nonce++ })).wait();
-  console.log("   10000 shares liquidity added");
-
-  // Set operator approval for ERC-6909 (needed for burn)
-  await (await nofeeswap.setOperator(operatorAddr, true, { nonce: nonce++ })).wait();
-  console.log("   Operator approved for ERC-6909 (burn ready)");
-
   // ===== Save deployed addresses =====
   const addresses = {
     deployerHelper: deployerHelperAddr,
@@ -332,7 +242,6 @@ async function main() {
     token0Symbol: token0Addr === tokenAAddr ? "ALPHA" : "BETA",
     token1Symbol: token1Addr === tokenAAddr ? "ALPHA" : "BETA",
     deployer: deployer.address,
-    poolId: poolId.toString(),
     chainId: Number((await provider.getNetwork()).chainId),
     rpcUrl: RPC_URL,
   };

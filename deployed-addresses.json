@@ -10,7 +10,6 @@
   "token0Symbol": "BETA",
   "token1Symbol": "ALPHA",
   "deployer": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
-  "poolId": "18962293390911561834666847387975030608319367789290320465634952213786284523520",
   "chainId": 31337,
   "rpcUrl": "http://127.0.0.1:8545"
 }

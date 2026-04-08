@@ -322,32 +322,44 @@ Open **http://localhost:3000** in your browser.
 
 ### Step 9: Use the dApp
 
-The deploy script already created a pool with 10000 shares of liquidity. The Pool ID is in `deployed-addresses.json` and auto-loads in the dApp.
+All pool creation, liquidity, and swaps are done manually through the dApp.
 
-> **IMPORTANT:** Do NOT create a new pool from the "New Pool" tab for basic testing. The deploy script's pool has liquidity. New pools start empty.
+**1. Create a Pool:**
+1. **New Pool** tab → Select fee tier (1.0% recommended) → Set initial price (e.g. `1.0`)
+2. Optionally edit the kernel shape (Linear/Step/Concentrated presets available)
+3. Click **Initialize Pool** → confirm in MetaMask
+4. **Copy the Pool ID** from the success message — you need it for all subsequent steps
 
-**Swap tokens:**
-1. **Swap** tab → Pool ID is auto-loaded from `deployed-addresses.json`
-2. Enter amount (e.g. `0.001`) → Click **Approve BETA** → confirm in MetaMask
-3. Click **Swap** → confirm in MetaMask
+**2. Add Liquidity:**
+1. **Liquidity** tab → Paste the **Pool ID**
+2. Select the **same fee tier** as the pool (e.g. 1.0%)
+3. Set price range: Min `0.5`, Max `2.0`
+4. Set shares: `10000` (use large shares for sandwich bot testing)
+5. Click **Approve BETA** → confirm in MetaMask
+6. Click **Approve ALPHA** → confirm in MetaMask
+7. Click **Add Liquidity** → confirm in MetaMask
 
-**Add more liquidity (optional):**
-1. **Liquidity** tab → Pool ID auto-loaded → Select **1.0%** fee tier
-2. Set price range (Min: `0.5`, Max: `2.0`) → Set shares (e.g. `1000`)
-3. **Approve BETA** → confirm → **Approve ALPHA** → confirm → **Add Liquidity** → confirm
+**3. Swap Tokens:**
+1. **Swap** tab → Paste the **Pool ID**
+2. Enter amount (e.g. `0.001`)
+3. Click **Approve BETA** → confirm in MetaMask
+4. Click **Swap** → confirm in MetaMask
 
-**Remove liquidity:**
+**4. Remove Liquidity:**
 1. **Liquidity** tab → Switch to **Remove Liquidity (Burn)**
 2. Click **Approve Operator** → confirm (required once before first burn)
-3. Set shares to remove → **Remove Liquidity** → confirm
-
-**Create a custom pool (optional):**
-1. **New Pool** tab → Select fee tier → Set price → Edit kernel shape → **Initialize Pool**
-2. Copy the Pool ID → Go to **Liquidity** tab → Add liquidity to the new pool before swapping
+3. Paste Pool ID → Set shares to remove
+4. Click **Remove Liquidity** → confirm in MetaMask
 
 ### Step 10: Test the Sandwich Bot
 
-Requires 3 terminals. The deploy script's pool already has 10000 shares — enough for the bot.
+Requires 3 terminals. You must first create a pool with large liquidity (Step 9) using auto-mining.
+
+**First, set up the pool (with auto-mining ON):**
+1. Complete Steps 4-9 (Anvil, deploy, frontend, create pool, add 10000 shares liquidity)
+2. Do a test swap to verify everything works
+
+**Then, test the sandwich bot:**
 
 **Terminal 1** — Anvil (already running from Step 4)
 
@@ -357,7 +369,7 @@ Requires 3 terminals. The deploy script's pool already has 10000 shares — enou
 .\windows-scripts\start-bot.bat
 ```
 
-**Terminal 3** — Mine bot's approval txs + use dApp:
+**Terminal 3** — Mine bot's approval txs:
 ```powershell
 .\windows-scripts\mine-block.bat
 .\windows-scripts\mine-block.bat
@@ -365,7 +377,7 @@ Requires 3 terminals. The deploy script's pool already has 10000 shares — enou
 
 Wait for the bot to show "Sandwich bot is running", then:
 
-1. In the dApp **Swap** tab, use the **deploy script's Pool ID** (auto-loaded)
+1. In the dApp **Swap** tab, paste the **Pool ID** from Step 9
 2. Enter a small amount like `0.001`
 3. Click **Approve BETA** → confirm in MetaMask → mine: `.\windows-scripts\mine-block.bat`
 4. Click **Swap** → confirm in MetaMask → **DO NOT mine yet!**
@@ -386,12 +398,14 @@ To re-enable auto-mining when done:
 .\windows-scripts\enable-mining.bat
 ```
 
+> **Tip:** For the back-run to succeed, the pool needs large liquidity (10000+ shares) relative to the swap amount (0.001). Small pools will cause the back-run to revert.
+
 ### Troubleshooting
 
 | Issue | Fix |
 |-------|-----|
 | **"replacement transaction underpriced"** | Mine pending txs: `.\windows-scripts\mine-block.bat` (x3), then clear MetaMask: Settings → Advanced → Clear activity tab data |
-| **"Transaction failed on-chain"** | Check you're using the deploy script's Pool ID (from `deployed-addresses.json`), not a newly created empty pool |
+| **"Transaction failed on-chain"** | Make sure the pool has liquidity before swapping. Create pool → Add liquidity (10000 shares) → Then swap |
 | **Bot not detecting swaps** | Make sure auto-mining is OFF (`.\windows-scripts\disable-mining.bat`) and the bot is running before you submit the swap |
 | **"nonce too low"** | Clear MetaMask activity data, or restart Anvil + redeploy |
 | **Sandwich back-run fails** | The pool needs more liquidity. Use the deploy script's pool (10000 shares) with a small swap (0.001) |
