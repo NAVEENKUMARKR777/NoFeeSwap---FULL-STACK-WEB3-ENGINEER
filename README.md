@@ -322,15 +322,32 @@ Open **http://localhost:3000** in your browser.
 
 ### Step 9: Use the dApp
 
-1. **New Pool** tab → Select fee tier (1.0%) → Set price (1.0) → Edit kernel shape → **Initialize Pool** → confirm in MetaMask
-2. Copy the **Pool ID** from the success message
-3. **Liquidity** tab → Paste Pool ID → Select 1.0% fee tier → Approve BETA → Approve ALPHA → **Add Liquidity**
-4. **Swap** tab → Paste Pool ID → Enter amount → Approve token → **Swap**
-5. **Liquidity** tab → Switch to Burn → **Approve Operator** → **Remove Liquidity**
+The deploy script already created a pool with 10000 shares of liquidity. The Pool ID is in `deployed-addresses.json` and auto-loads in the dApp.
+
+> **IMPORTANT:** Do NOT create a new pool from the "New Pool" tab for basic testing. The deploy script's pool has liquidity. New pools start empty.
+
+**Swap tokens:**
+1. **Swap** tab → Pool ID is auto-loaded from `deployed-addresses.json`
+2. Enter amount (e.g. `0.001`) → Click **Approve BETA** → confirm in MetaMask
+3. Click **Swap** → confirm in MetaMask
+
+**Add more liquidity (optional):**
+1. **Liquidity** tab → Pool ID auto-loaded → Select **1.0%** fee tier
+2. Set price range (Min: `0.5`, Max: `2.0`) → Set shares (e.g. `1000`)
+3. **Approve BETA** → confirm → **Approve ALPHA** → confirm → **Add Liquidity** → confirm
+
+**Remove liquidity:**
+1. **Liquidity** tab → Switch to **Remove Liquidity (Burn)**
+2. Click **Approve Operator** → confirm (required once before first burn)
+3. Set shares to remove → **Remove Liquidity** → confirm
+
+**Create a custom pool (optional):**
+1. **New Pool** tab → Select fee tier → Set price → Edit kernel shape → **Initialize Pool**
+2. Copy the Pool ID → Go to **Liquidity** tab → Add liquidity to the new pool before swapping
 
 ### Step 10: Test the Sandwich Bot
 
-Requires 3 terminals:
+Requires 3 terminals. The deploy script's pool already has 10000 shares — enough for the bot.
 
 **Terminal 1** — Anvil (already running from Step 4)
 
@@ -339,23 +356,46 @@ Requires 3 terminals:
 .\windows-scripts\disable-mining.bat
 .\windows-scripts\start-bot.bat
 ```
-Mine the bot's 2 approval txs:
+
+**Terminal 3** — Mine bot's approval txs + use dApp:
 ```powershell
-# In Terminal 3:
 .\windows-scripts\mine-block.bat
 .\windows-scripts\mine-block.bat
 ```
 
-**Terminal 3** — Use the dApp:
-1. Initialize a pool → mine: `.\windows-scripts\mine-block.bat`
-2. Add liquidity (approve + mint) → mine after each tx
-3. Submit a swap → **DON'T mine yet** → watch bot terminal detect it
-4. Mine: `.\windows-scripts\mine-block.bat` → bot shows front-run/back-run results
+Wait for the bot to show "Sandwich bot is running", then:
+
+1. In the dApp **Swap** tab, use the **deploy script's Pool ID** (auto-loaded)
+2. Enter a small amount like `0.001`
+3. Click **Approve BETA** → confirm in MetaMask → mine: `.\windows-scripts\mine-block.bat`
+4. Click **Swap** → confirm in MetaMask → **DO NOT mine yet!**
+5. **Watch the bot terminal** — it prints:
+   ```
+   [Mempool] Detected swap transaction from 0xf39F...
+   === Sandwich Analysis ===
+   === Executing Sandwich ===
+   [1/3] Front-run: ...
+   [2/3] Victim: ...
+   [3/3] Back-run: ...
+   ```
+6. Now mine: `.\windows-scripts\mine-block.bat`
+7. Bot prints: `Front-run: SUCCESS` and `Back-run: SUCCESS`
 
 To re-enable auto-mining when done:
 ```powershell
 .\windows-scripts\enable-mining.bat
 ```
+
+### Troubleshooting
+
+| Issue | Fix |
+|-------|-----|
+| **"replacement transaction underpriced"** | Mine pending txs: `.\windows-scripts\mine-block.bat` (x3), then clear MetaMask: Settings → Advanced → Clear activity tab data |
+| **"Transaction failed on-chain"** | Check you're using the deploy script's Pool ID (from `deployed-addresses.json`), not a newly created empty pool |
+| **Bot not detecting swaps** | Make sure auto-mining is OFF (`.\windows-scripts\disable-mining.bat`) and the bot is running before you submit the swap |
+| **"nonce too low"** | Clear MetaMask activity data, or restart Anvil + redeploy |
+| **Sandwich back-run fails** | The pool needs more liquidity. Use the deploy script's pool (10000 shares) with a small swap (0.001) |
+| **Port 8545 in use** | Kill existing Anvil: `taskkill /F /IM anvil.exe` |
 
 ---
 
